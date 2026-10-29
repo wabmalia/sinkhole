@@ -1,7 +1,8 @@
-import { Peer, type DataConnection } from 'peerjs';
+import { Peer, type DataConnection, type PeerOptions } from 'peerjs';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 import { HostRoom, type HostSnapshot } from './host';
+import { iceServers } from './relay';
 import { cleanName, newRoomCode, PEER_PREFIX, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 // The connection side, the same shape as turn7's: one browser hosts the room
@@ -48,7 +49,13 @@ function tabId(): string {
 /** How long a guest waits for the direct connection before giving up. */
 const JOIN_TIMEOUT_MS = 15_000;
 
-const snapKey =(code: string) => `sinkhole.host.${code}`;
+// Relay servers when the turn-relay Worker answers, else PeerJS's defaults.
+async function peerOptions(): Promise<PeerOptions> {
+  const servers = await iceServers();
+  return servers ? { config: { iceServers: servers } } : {};
+}
+
+const snapKey = (code: string) => `sinkhole.host.${code}`;
 
 function savedHost(code: string): HostSnapshot | null {
   const raw = store.get(localStorage, snapKey(code));
@@ -76,6 +83,8 @@ class Session {
   private host: HostRoom | null = null;
   private conn: DataConnection | null = null;
   private retry: ReturnType<typeof setTimeout> | undefined;
+  /** Bumped on teardown, so a peer still being set up knows it's stale. */
+  private gen = 0;
 
   listen(l: SessionListener) {
     this.listeners.add(l);
@@ -125,8 +134,11 @@ class Session {
     this.openHostPeer(code, !saved, 0);
   }
 
-  private openHostPeer(code: string, fresh: boolean, attempt: number) {
-    const peer = new Peer(PEER_PREFIX + code);
+  private async openHostPeer(code: string, fresh: boolean, attempt: number) {
+    const gen = this.gen;
+    const options = await peerOptions();
+    if (gen !== this.gen) return; // left or restarted while waiting
+    const peer = new Peer(PEER_PREFIX + code, options);
     this.peer = peer;
     peer.on('open', () => {
       this.set({ status: 'room' });
@@ -185,7 +197,14 @@ class Session {
     this.code = code;
     this.set({ status: 'connecting', message: `Looking for room ${code}…` });
     store.set(sessionStorage, 'sinkhole.joined', code);
-    const peer = new Peer();
+    void this.openGuestPeer(code);
+  }
+
+  private async openGuestPeer(code: string) {
+    const gen = this.gen;
+    const options = await peerOptions();
+    if (gen !== this.gen) return;
+    const peer = new Peer(options);
     this.peer = peer;
     peer.on('open', () => this.connectToHost());
     peer.on('disconnected', () => {
@@ -290,6 +309,7 @@ class Session {
   }
 
   private teardown() {
+    this.gen++;
     clearTimeout(this.retry);
     this.host?.dispose();
     this.host = null;
