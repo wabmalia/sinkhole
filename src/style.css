@@ -450,3 +450,12 @@ html, body {
 
 .toast { bottom: 150px; }
 .offline { top: 50%; border-color: var(--accent); }
+
+/* Turnstile stays invisible unless Cloudflare asks the visitor to tick a box. */
+.turnstile {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 20;
+}

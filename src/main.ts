@@ -2,9 +2,12 @@ import Phaser from 'phaser';
 import './style.css';
 import { COLORS } from './config';
 import { CourseScene } from './scene/CourseScene';
+import { iceServers } from './net/relay';
 import { setupScreens } from './ui/screens';
 
 setupScreens();
+// Get relay credentials ready before anyone opens or joins a room.
+void iceServers();
 
 new Phaser.Game({
   type: Phaser.WEBGL,
