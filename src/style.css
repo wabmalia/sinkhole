@@ -352,7 +352,8 @@ html, body {
   border-radius: 4px;
   background: rgb(18 21 42 / 0.9);
   color: var(--fg);
-  font: 700 15px var(--font);
+  /* 16px or more, or iOS zooms the page in when the field is tapped. */
+  font: 700 16px var(--font);
   letter-spacing: 0.06em;
   text-align: center;
   outline: none;

@@ -9,7 +9,7 @@ setupScreens();
 // Get relay credentials ready before anyone opens or joins a room.
 void iceServers();
 
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.WEBGL,
   parent: 'game',
   backgroundColor: COLORS.bg,
@@ -22,3 +22,14 @@ new Phaser.Game({
   },
   scene: [CourseScene],
 });
+
+// Phones scroll the page to keep a focused field above the keyboard and don't
+// always scroll it back. Nothing here is meant to scroll, so once no field has
+// focus, put the page back and refit the game to the screen.
+document.addEventListener('focusout', () =>
+  setTimeout(() => {
+    if (document.activeElement instanceof HTMLInputElement) return;
+    window.scrollTo(0, 0);
+    game.scale.refresh();
+  }, 100),
+);
