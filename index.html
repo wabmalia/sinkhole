@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#12152a">
+  <title>Sinkhole</title>
+  <meta name="description" content="Turn-based mini golf on the grid, with friends.">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
+</head>
+<body>
+  <div id="game"></div>
+
+  <header class="hud" id="hud" hidden>
+    <div class="hud-row">
+      <p class="hole-name" id="hole-name"></p>
+      <button class="link-btn" id="leave-game" type="button">LEAVE</button>
+    </div>
+    <ol class="players" id="players"></ol>
+  </header>
+
+  <footer class="controls" id="controls" hidden>
+    <p class="hint" id="hint"></p>
+    <div class="meter" id="meter">
+      <div class="meter-window" id="meter-window"></div>
+      <div class="meter-fill" id="meter-fill"></div>
+      <div class="meter-target" id="meter-target"></div>
+    </div>
+    <div class="row">
+      <span class="power" id="power"></span>
+      <button class="btn" id="shoot" type="button">SHOOT</button>
+    </div>
+  </footer>
+
+  <p class="flash" id="flash" aria-live="polite"></p>
+  <p class="toast" id="toast" role="status" hidden></p>
+  <p class="offline" id="offline" hidden>RECONNECTING TO HOST…</p>
+
+  <section class="overlay" id="home">
+    <h1 class="title">SINKHOLE</h1>
+    <p class="sub">mini golf on the grid</p>
+
+    <div class="panel">
+      <label class="label" for="name">NICKNAME</label>
+      <input class="field" id="name" maxlength="16" placeholder="Pick a nickname" autocomplete="off" spellcheck="false">
+      <p class="note">Just a nickname, no real names or contact details needed.</p>
+    </div>
+
+    <div class="panel" id="home-actions">
+      <form class="join" id="join-form">
+        <input class="field code" id="code" maxlength="5" placeholder="CODE" aria-label="Room code"
+          autocapitalize="characters" autocomplete="off" spellcheck="false">
+        <button class="btn" id="join" type="submit">JOIN</button>
+      </form>
+      <p class="or" id="or">or</p>
+      <button class="btn btn-big" id="create" type="button">HOST A ROOM</button>
+    </div>
+
+    <div class="panel status" id="connecting" hidden>
+      <p id="connecting-text"></p>
+      <button class="link-btn" id="cancel" type="button">CANCEL</button>
+    </div>
+    <p class="error" id="error" role="alert" hidden></p>
+
+    <p class="how">One browser hosts the room, everyone else joins with the code. Up to 8 players.
+      Drag anywhere to pull back and aim; before your first shot, drag your ball around the mat.
+      Hit SHOOT, then stop the bar on your power. Miss it and the shot bends.</p>
+  </section>
+
+  <section class="overlay" id="lobby" hidden>
+    <p class="label">ROOM</p>
+    <p class="room-code" id="room-code"></p>
+    <button class="link-btn" id="copy" type="button">COPY INVITE LINK</button>
+    <ol class="members" id="members"></ol>
+    <button class="btn btn-big" id="start" type="button">START</button>
+    <p class="note" id="waiting">Waiting for the host to start.</p>
+    <button class="link-btn" id="leave" type="button">LEAVE</button>
+  </section>
+
+  <section class="overlay" id="end" hidden>
+    <h2 class="title title-small">HOLE COMPLETE</h2>
+    <ol class="results" id="results"></ol>
+    <button class="btn btn-big" id="again" type="button">PLAY AGAIN</button>
+    <button class="link-btn" id="to-lobby" type="button">BACK TO LOBBY</button>
+    <p class="note" id="end-waiting">Waiting for the host.</p>
+  </section>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
