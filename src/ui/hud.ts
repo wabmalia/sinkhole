@@ -9,10 +9,10 @@ import type { MemberView } from '../net/protocol';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const el = {
-  hud: $('hud'),
+  play: $('play'),
   holeName: $('hole-name'),
   players: $('players'),
-  controls: $('controls'),
+  slot: $('slot'),
   hint: $('hint'),
   meter: $('meter'),
   meterWindow: $('meter-window'),
@@ -20,6 +20,7 @@ const el = {
   meterTarget: $('meter-target'),
   power: $('power'),
   shoot: $<HTMLButtonElement>('shoot'),
+  tip: $('tip'),
   flash: $('flash'),
   toast: $('toast'),
 };
@@ -43,29 +44,33 @@ export function onShoot(press: () => void) {
 }
 
 export function showGame(on: boolean) {
-  el.hud.hidden = !on;
-  el.controls.hidden = !on;
+  el.play.hidden = !on;
 }
 
-// Space for the canvas-free elements so the scene can fit the course between.
-export function reservedSpace(): { top: number; bottom: number } {
-  return {
-    top: el.hud.hidden ? 0 : el.hud.getBoundingClientRect().bottom,
-    bottom: el.controls.hidden ? 0 : el.controls.getBoundingClientRect().height,
-  };
+// Where the course goes: the space the HUD leaves, or the whole screen when
+// it's hidden.
+export function courseArea(): { x: number; y: number; w: number; h: number } {
+  if (el.play.hidden) return { x: 0, y: 0, w: innerWidth, h: innerHeight };
+  const r = el.slot.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
 }
+
+// Fewest strokes first; picked up counts as worst.
+const byScore = (g: Game) =>
+  [...g.players].sort((a, b) => (a.pickedUp ? Infinity : a.strokes) - (b.pickedUp ? Infinity : b.strokes));
 
 export function renderPlayers(g: Game, members: MemberView[]) {
   const hole = holeOf(g.holeId);
   el.holeName.textContent = `${hole.name.toUpperCase()} · PAR ${hole.par}`;
   const online = new Map(members.map(m => [m.id, m.connected]));
   el.players.replaceChildren(
-    ...g.players.map(p => {
+    ...byScore(g).map(p => {
       const li = document.createElement('li');
       li.style.setProperty('--c', css(p.color));
       li.classList.toggle('current', g.phase !== 'over' && p === current(g));
       li.classList.toggle('out', p.holed || p.pickedUp);
       li.classList.toggle('away', online.get(p.id) === false);
+      li.dataset.name = p.name;
       const dot = document.createElement('span');
       dot.className = 'dot';
       const who = document.createElement('span');
@@ -78,25 +83,52 @@ export function renderPlayers(g: Game, members: MemberView[]) {
       return li;
     }),
   );
+  fitPlayers();
 }
+
+// Drop the names from the row when they don't all fit on one line.
+function fitPlayers() {
+  el.players.classList.remove('compact');
+  el.players.classList.toggle('compact', el.players.scrollWidth > el.players.clientWidth);
+}
+
+// Whether the row is showing names; if not, the scene puts them on the balls.
+export const namesInRow = () => !el.players.classList.contains('compact');
+
+window.addEventListener('resize', fitPlayers);
+
+// When the row has no names, tap a player for theirs.
+let tipTimer: ReturnType<typeof setTimeout> | undefined;
+el.players.addEventListener('pointerdown', e => {
+  const li = (e.target as HTMLElement).closest('li');
+  if (!li?.dataset.name || namesInRow()) return;
+  const r = li.getBoundingClientRect();
+  el.tip.textContent = li.dataset.name;
+  el.tip.style.setProperty('--c', li.style.getPropertyValue('--c'));
+  el.tip.style.left = `${r.left + r.width / 2}px`;
+  el.tip.style.top = `${r.bottom + 6}px`;
+  el.tip.hidden = false;
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => (el.tip.hidden = true), 2000);
+});
 
 // 'aim' and 'meter' are my turn; 'watch' is someone else's or a shot rolling.
 export type ControlState = 'aim' | 'meter' | 'watch';
 
 export function renderControls(state: ControlState, power: number, hint: string) {
-  el.power.textContent = `POWER ${pct(power)}`;
+  el.power.textContent = pct(power);
   el.hint.textContent = hint;
   const w = perfectWindow(power);
-  el.meterTarget.style.left = exact(power);
-  el.meterWindow.style.left = exact(Math.max(0, power - w));
-  el.meterWindow.style.width = exact(Math.min(1, power + w) - Math.max(0, power - w));
+  el.meterTarget.style.bottom = exact(power);
+  el.meterWindow.style.bottom = exact(Math.max(0, power - w));
+  el.meterWindow.style.height = exact(Math.min(1, power + w) - Math.max(0, power - w));
   el.shoot.disabled = state === 'watch';
   el.shoot.textContent = state === 'meter' ? 'STOP' : 'SHOOT';
   el.shoot.classList.toggle('stop', state === 'meter');
 }
 
 export function setMeter(v: number) {
-  el.meterFill.style.width = exact(v);
+  el.meterFill.style.height = exact(v);
 }
 
 export function flash(text: string, color?: number) {

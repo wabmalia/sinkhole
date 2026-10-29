@@ -14,27 +14,28 @@
 <body>
   <div id="game"></div>
 
-  <header class="hud" id="hud" hidden>
-    <div class="hud-row">
-      <p class="hole-name" id="hole-name"></p>
-      <button class="link-btn" id="leave-game" type="button">LEAVE</button>
-    </div>
-    <ol class="players" id="players"></ol>
-  </header>
-
-  <footer class="controls" id="controls" hidden>
-    <p class="hint" id="hint"></p>
+  <div class="play" id="play" hidden>
+    <header class="hud">
+      <div class="hud-row">
+        <p class="hole-name" id="hole-name"></p>
+        <button class="link-btn" id="leave-game" type="button">LEAVE</button>
+      </div>
+      <ol class="players" id="players"></ol>
+      <p class="hint" id="hint"></p>
+    </header>
+    <div class="slot" id="slot"></div>
     <div class="meter" id="meter">
       <div class="meter-window" id="meter-window"></div>
       <div class="meter-fill" id="meter-fill"></div>
       <div class="meter-target" id="meter-target"></div>
     </div>
-    <div class="row">
+    <div class="controls">
       <span class="power" id="power"></span>
       <button class="btn" id="shoot" type="button">SHOOT</button>
     </div>
-  </footer>
+  </div>
 
+  <p class="tip" id="tip" hidden></p>
   <p class="flash" id="flash" aria-live="polite"></p>
   <p class="toast" id="toast" role="status" hidden></p>
   <p class="offline" id="offline" hidden>RECONNECTING TO HOST…</p>

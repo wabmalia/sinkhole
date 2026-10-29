@@ -34,18 +34,34 @@ html, body {
 
 [hidden] { display: none !important; }
 
-/* --- HUD ----------------------------------------------------------------- */
+/* --- In game ------------------------------------------------------------- */
+
+/* The course is tall and narrow, so phones run out of height first: the HUD
+   on top is kept to one row of players, and the power bar, % and SHOOT sit
+   in a column on the right. The scene fits the course into .slot. */
+.play {
+  position: fixed;
+  inset: 0;
+  max-width: 640px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 64px;
+  grid-template-rows: auto 1fr auto;
+  column-gap: 8px;
+  padding:
+    max(10px, env(safe-area-inset-top)) var(--gutter)
+    max(14px, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+.play button { pointer-events: auto; }
 
 .hud {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: max(10px, env(safe-area-inset-top)) var(--gutter) 8px;
-  pointer-events: none;
+  gap: 4px;
+  padding-bottom: 6px;
 }
 
 .hud-row {
@@ -55,8 +71,6 @@ html, body {
   gap: 12px;
 }
 
-.hud button { pointer-events: auto; }
-
 .hole-name {
   margin: 0;
   font-size: 12px;
@@ -65,16 +79,31 @@ html, body {
   color: var(--muted);
 }
 
+.hint {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.slot { grid-column: 1; grid-row: 2 / 4; }
+
+/* --- Players ------------------------------------------------------------- */
+
+/* One row. When the names don't fit, the row goes .compact: just colour and
+   score, the name on a tap and over the balls. */
 .players {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
+  overflow: hidden;
 }
 
 .players li {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -85,6 +114,8 @@ html, body {
   font-weight: 700;
   color: var(--muted);
   background: rgb(18 21 42 / 0.7);
+  pointer-events: auto;
+  cursor: default;
 }
 
 .players .who {
@@ -94,7 +125,12 @@ html, body {
   white-space: nowrap;
 }
 
-.players li.away .who { text-decoration: line-through; }
+.players .strokes { color: var(--fg); }
+
+.players.compact li { gap: 5px; padding: 5px 6px; }
+.players.compact .who { display: none; }
+
+.players li.away { border-style: dashed; opacity: 0.5; }
 
 .players li.current {
   color: var(--fg);
@@ -104,14 +140,24 @@ html, body {
 
 .players li.out { opacity: 0.6; }
 
-.strokes {
-  margin-left: 4px;
-  padding-left: 8px;
-  border-left: 1px solid var(--line);
-  color: var(--fg);
+.tip {
+  position: fixed;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--c, var(--line));
+  border-radius: 4px;
+  background: rgb(18 21 42 / 0.95);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--c, var(--fg));
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 5;
 }
 
 .dot {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -122,74 +168,66 @@ html, body {
 /* --- Controls ------------------------------------------------------------ */
 
 .controls {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  grid-column: 2;
+  grid-row: 3;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px var(--gutter) max(14px, env(safe-area-inset-bottom));
-  pointer-events: none;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
 }
 
-.controls > * { pointer-events: auto; }
-
-.hint {
-  margin: 0;
-  min-height: 1.4em;
+.controls .btn {
+  width: 100%;
+  min-width: 0;
+  padding: 16px 0;
   font-size: 11px;
-  letter-spacing: 0.04em;
-  text-align: center;
-  color: var(--muted);
-  pointer-events: none !important;
+  letter-spacing: 0.08em;
 }
 
+.power {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* Fills upwards: bottom is 0%, top is 100%. */
 .meter {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: center;
+  width: 22px;
   position: relative;
-  height: 18px;
   border: 1px solid var(--neon);
   border-radius: 3px;
   background: rgb(18 21 42 / 0.85);
   box-shadow: 0 0 10px -3px var(--neon);
   overflow: hidden;
+  pointer-events: auto;
 }
 
 .meter-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 0;
-  background: linear-gradient(90deg, rgb(92 225 255 / 0.25), var(--neon));
+  inset: auto 0 0 0;
+  height: 0;
+  background: linear-gradient(0deg, rgb(92 225 255 / 0.25), var(--neon));
 }
 
 .meter-window {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  left: 0;
+  right: 0;
   background: rgb(242 177 52 / 0.28);
 }
 
 .meter-target {
   position: absolute;
-  top: -1px;
-  bottom: -1px;
-  width: 2px;
-  margin-left: -1px;
+  left: -1px;
+  right: -1px;
+  height: 2px;
+  margin-bottom: -1px;
   background: var(--gold);
   box-shadow: 0 0 6px var(--gold);
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.power {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
 }
 
 .btn {
@@ -449,7 +487,7 @@ html, body {
   z-index: 10;
 }
 
-.toast { bottom: 150px; }
+.toast { bottom: 40%; }
 .offline { top: 50%; border-color: var(--accent); }
 
 /* Turnstile stays invisible unless Cloudflare asks the visitor to tick a box. */

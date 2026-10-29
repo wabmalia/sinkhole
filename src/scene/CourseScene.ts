@@ -51,6 +51,7 @@ export class CourseScene extends Phaser.Scene {
   private accumulator = 0;
   private trails = new Map<number, Trail>();
   private rings: Ring[] = [];
+  private tags = new Map<string, Phaser.GameObjects.Text>(); // name over each ball
   private keys!: Phaser.Types.Input.Keyboard.CursorKeys;
   private shift!: Phaser.Input.Keyboard.Key;
 
@@ -115,19 +116,17 @@ export class CourseScene extends Phaser.Scene {
     this.fit();
   }
 
-  // Fit the whole hole between the HUD and the controls.
+  // Fit the whole hole into the space the HUD leaves for it.
   private fit() {
     const cam = this.cameras.main;
     const { width, height } = this.scale;
-    const space = ui.reservedSpace();
-    const pad = 16;
+    const area = ui.courseArea();
+    const pad = 6;
     const b = bounds(holeOf(this.drawnHole).outline);
-    const availW = width - pad * 2;
-    const availH = height - space.top - space.bottom - pad * 2;
-    const zoom = Math.max(0.1, Math.min(availW / b.w, availH / b.h));
+    const zoom = Math.max(0.1, Math.min((area.w - pad * 2) / b.w, (area.h - pad * 2) / b.h));
     cam.setZoom(zoom);
-    const midY = space.top + pad + availH / 2;
-    cam.centerOn(b.x + b.w / 2, b.y + b.h / 2 - (midY - height / 2) / zoom);
+    const mid = { x: area.x + area.w / 2, y: area.y + area.h / 2 };
+    cam.centerOn(b.x + b.w / 2 - (mid.x - width / 2) / zoom, b.y + b.h / 2 - (mid.y - height / 2) / zoom);
   }
 
   // --- Following the room --------------------------------------------------
@@ -391,6 +390,7 @@ export class CourseScene extends Phaser.Scene {
       fx.strokeCircle(r.at.x, r.at.y, lerp(r.from, r.to, k));
     }
 
+    this.drawTags(g);
     if (!g) return;
 
     if (g.phase === 'aim' && !this.rolling) this.drawAim(g, time);
@@ -405,6 +405,33 @@ export class CourseScene extends Phaser.Scene {
       fx.fillCircle(b.pos.x, b.pos.y, R);
       fx.fillStyle(0xffffff, 0.9);
       fx.fillCircle(b.pos.x - R * 0.3, b.pos.y - R * 0.3, R * 0.32);
+    }
+  }
+
+  // When the players row has no room for names, they float over the balls,
+  // the same size on screen whatever the zoom.
+  private drawTags(g: Game | null) {
+    const zoom = this.cameras.main.zoom;
+    const live = new Set<string>();
+    for (const p of (!ui.namesInRow() && g?.players) || []) {
+      const b = p.ball;
+      if (!b || b.sunk) continue;
+      live.add(p.id);
+      let tag = this.tags.get(p.id);
+      if (!tag) {
+        tag = this.add
+          .text(0, 0, '', { fontFamily: 'Orbitron, sans-serif', fontSize: '10px', fontStyle: '700' })
+          .setOrigin(0.5, 1)
+          .setResolution(window.devicePixelRatio);
+        this.tags.set(p.id, tag);
+      }
+      tag.setText(p.name).setColor(ui.css(p.color)).setAlpha(0.85).setScale(1 / zoom);
+      tag.setPosition(b.pos.x, b.pos.y - CONFIG.ball.radius * 2.2 - 2 / zoom);
+    }
+    for (const [id, tag] of this.tags) {
+      if (live.has(id)) continue;
+      tag.destroy();
+      this.tags.delete(id);
     }
   }
 
