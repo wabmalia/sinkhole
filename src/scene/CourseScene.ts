@@ -214,9 +214,10 @@ export class CourseScene extends Phaser.Scene {
     if (!g) return;
     ui.renderPlayers(g, session.room?.members ?? [], session.room?.match ?? null);
     const mine = this.myTurn();
-    const who = g.phase === 'aim' ? current(g).name : '';
-    // Your own turn needs no line: the intro card explains it.
-    ui.setHint(this.rolling || mine || this.sent ? '' : `${who} is lining up`);
+    // Your own turn needs no line: the intro card explains it. Nor does a
+    // finished hole.
+    const waiting = g.phase === 'aim' && !this.rolling && !mine && !this.sent;
+    ui.setHint(waiting ? `${current(g).name} is lining up` : '');
     ui.showIntro(mine && !this.introSeen);
   }
 
