@@ -19,7 +19,7 @@ export interface Hole {
   tee: Rect;
   cup: Vec;
   ramps: Ramp[];
-  rivers: Vec[][];      // touch one and the ball goes back, +1 stroke
+  rivers: Vec[][];      // slow the ball hard; stop in one and it goes back, +1 stroke
   wells: Well[];
   portals: Portal[];
 }

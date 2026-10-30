@@ -67,7 +67,7 @@ const HELP: Record<Tool, string> = {
   tee: 'Drag out the tee mat, where players place their first shot.',
   cup: 'Click where the cup goes.',
   ramp: 'Click the corners of a ramp, then close it. Drag its arrow to point downhill; set how steep it is below.',
-  river: 'Click the corners of a river, then close it. A ball that touches it goes back where the shot started, +1 stroke.',
+  river: 'Click the corners of a river, then close it. It slows the ball hard: a strong shot can get across a narrow one, but a ball that stops in it goes back where the shot started, +1 stroke.',
   black: 'Click to place a black hole. It pulls balls in and swallows them at the core, like a river. Drag its ring to change its reach.',
   white: 'Click to place a white hole. It pushes balls away. Drag its ring to change its reach.',
   portal: 'Click twice: where the ball goes in, and where it comes out. Each colour is one pair.',

@@ -8,7 +8,7 @@ export interface Ball {
   pos: Vec;
   vel: Vec;
   sunk: boolean;
-  from?: Vec;           // where this shot started; rivers send the ball back here
+  from?: Vec;           // where this shot started; a ball that sinks in a river goes back here
   through?: string;     // the portal it just came out of ("pink:b"), until it leaves it
 }
 
@@ -54,8 +54,10 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
     const speed = len(b.vel);
     if (speed === 0) continue;
 
-    // Rolling resistance plus drag, never reversing the ball.
-    const slow = (P.rolling + P.drag * speed) * dt;
+    // Rolling resistance plus drag, never reversing the ball. Rivers drag
+    // much harder.
+    const wet = course.rivers.some(r => inside(b.pos, r));
+    const slow = (P.rolling + P.drag * speed + (wet ? F.riverDrag : 0)) * dt;
     if (speed - slow <= P.stopSpeed && len(push) <= P.rolling) {
       b.vel = { x: 0, y: 0 };
     } else {
@@ -94,7 +96,8 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
   }
 
   for (const b of live) {
-    const cause = course.rivers.some(r => inside(b.pos, r))
+    // A ball that has all but stopped in a river sank in it.
+    const cause = len(b.vel) < F.riverSink && course.rivers.some(r => inside(b.pos, r))
       ? 'river'
       : course.wells.some(w => w.kind === 'black' && dist(b.pos, w.at) < F.coreRadius)
         ? 'blackHole'

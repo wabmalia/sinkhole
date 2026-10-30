@@ -53,14 +53,30 @@ describe('ramps', () => {
 });
 
 describe('rivers', () => {
-  const river = withOnly({ rivers: [square(0, 400, 360, 40)] });
+  const river = (width: number) => withOnly({ rivers: [square(0, 500, 360, width)] });
+  const full = CONFIG.physics.maxSpeed;
 
-  it('send the ball back to where the shot started', () => {
-    const b = ball(180, 700, 0, -900);
-    const events = settle(river, [b]);
+  it('send a ball that stops in one back to where the shot started', () => {
+    const b = ball(180, 700, 0, -500);
+    const events = settle(river(40), [b]);
     expect(b.pos).toEqual({ x: 180, y: 700 });
     expect(b.vel).toEqual({ x: 0, y: 0 });
     expect(events.filter(e => e.type === 'reset')).toHaveLength(1);
+  });
+
+  it('let a hard shot across a narrow one', () => {
+    // Only up to the far bank: on this open floor it later bounces back.
+    const b = ball(180, 700, 0, -full);
+    const events: ReturnType<typeof step> = [];
+    for (let i = 0; i < 2400 && b.pos.y > 480; i++) events.push(...step(river(40), [b]));
+    expect(events.some(e => e.type === 'reset')).toBe(false);
+    expect(b.pos.y).toBeLessThan(480);
+  });
+
+  it('stop even a full-power shot in a wide one', () => {
+    const b = ball(180, 700, 0, -full);
+    const events = settle(river(200), [b]);
+    expect(events.some(e => e.type === 'reset')).toBe(true);
   });
 });
 

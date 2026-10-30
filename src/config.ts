@@ -28,6 +28,8 @@ export const CONFIG = {
   features: {
     portalRadius: 14,     // a ball whose centre gets this close goes through
     coreRadius: 10,       // a black hole swallows a ball this close to its centre
+    riverDrag: 12000,     // extra slow-down in a river, units/s²: hard shots get across narrow ones
+    riverSink: 30,        // a ball this slow in a river has sunk: back where the shot started
   },
 
   aim: {
