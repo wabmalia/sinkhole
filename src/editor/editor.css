@@ -180,3 +180,66 @@ kbd {
 .rules li.ok { color: var(--good); }
 
 .status:empty { display: none; }
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.tabs button.on {
+  border-color: var(--neon);
+  color: var(--neon);
+  box-shadow: 0 0 10px -4px var(--neon);
+}
+
+.tab-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.set-holes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.set-holes li {
+  display: grid;
+  grid-template-columns: 1fr auto repeat(4, 26px);
+  align-items: center;
+  gap: 4px;
+}
+
+.set-holes button {
+  padding: 6px 4px;
+  font-size: 11px;
+}
+
+.set-holes .set-hole {
+  overflow: hidden;
+  padding: 6px 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.set-holes li.on .set-hole { border-color: var(--gold); color: var(--gold); }
+.set-holes li.bad .set-hole { border-color: var(--accent); color: var(--accent); }
+
+.set-par {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.set-total {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--neon);
+}

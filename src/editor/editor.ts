@@ -3,17 +3,19 @@ import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { atRest, step, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { FRAME, holeToJson, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
-import { courseFrom, PORTAL_COLORS, type Portal, type PortalColor, type Rect, type Well } from '../holes/types';
-import { drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
+import { courseFrom, PORTAL_COLORS, type Hole, type Portal, type PortalColor, type Rect, type Well } from '../holes/types';
+import { drawCourse, drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
 import { drawMoving, layout, type Layout } from '../scene/elements';
 import { canvasPen } from './canvasPen';
+import { setupSets } from './sets';
 import { probe, shoot, testBall, type Probe } from './testplay';
 
 // A page for sketching holes (editor/index.html). It draws in the hole's own
 // units inside the size limit and checks the same rules as the game. On the
 // dev server it opens and saves src/holes/<id>.json directly (see
 // vite.config.ts); on the site, where there's no server to write to, it opens
-// the holes built into the game and downloads what you make.
+// the holes built into the game and downloads what you make. The SETS tab
+// (sets.ts) puts holes together into sets the same way.
 
 const LOCAL = import.meta.env.DEV;
 const BUILT = import.meta.glob<unknown>('../holes/*.json', { eager: true, import: 'default' });
@@ -45,6 +47,7 @@ interface Draft {
   portals: DraftPortal[];
 }
 
+type Tab = 'holes' | 'sets';
 type Tool = 'move' | 'outline' | 'block' | 'tee' | 'cup' | 'ramp' | 'river' | 'black' | 'white' | 'portal' | 'test';
 type Zone = 'blocks' | 'ramps' | 'rivers';
 // Something on the hole that can be picked, dragged or deleted.
@@ -66,6 +69,7 @@ const GRID = 30;
 const MARGIN = 40;        // room around the frame, in hole units
 const HIT = 10;           // how close the pointer must be, in screen pixels
 const STATE_KEY = 'sinkhole-editor';
+const TAB_KEY = 'sinkhole-editor-tab';
 const ARROW = 40;         // length of a ramp's direction arrow, hole units
 
 const HELP: Record<Tool, string> = {
@@ -119,6 +123,8 @@ const blank = (): Draft => ({
 const kept = restore();
 let draft: Draft = kept ? { ...blank(), ...kept.draft } : blank();
 let tool: Tool = 'move';
+let tab: Tab = 'holes';
+let preview: Hole | null = null;   // the hole the SETS tab shows
 let drawing: Vec[] = [];           // corners of a shape being placed
 let pointer: Vec | null = null;    // under the mouse, in hole units, snapped
 let hover: Target | null = null;
@@ -315,7 +321,7 @@ function selectionOf(t: Target): Selection {
 // --- Pointer ----------------------------------------------------------------
 
 el.canvas.addEventListener('pointerdown', e => {
-  if (e.button !== 0) return;
+  if (e.button !== 0 || tab === 'sets') return;
   // Leave the text fields, so the tool keys work again.
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   el.canvas.setPointerCapture(e.pointerId);
@@ -512,6 +518,7 @@ const KEYS: Record<string, Tool> = {
 
 window.addEventListener('keydown', e => {
   free = e.shiftKey;
+  if (tab === 'sets') return;
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
     // Esc leaves the field, so the tool keys work again.
     if (e.key === 'Escape') e.target.blur();
@@ -818,25 +825,32 @@ el.fresh.addEventListener('click', () => {
   changed();
 });
 
-el.load.addEventListener('change', async () => {
+el.load.addEventListener('change', () => {
   const id = el.load.value;
   el.load.value = '';
-  if (!id) return;
-  let data: unknown;
-  if (LOCAL) {
-    const res = await fetch(`/__holes/${id}`);
-    if (!res.ok) return status(`Couldn't open ${id}.`);
-    data = await res.json();
-  } else {
-    data = Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
-  }
+  if (id) void openHole(id);
+});
+
+// A hole file as it is: fresh from disk on the dev server, else built in.
+async function holeData(id: string): Promise<unknown> {
+  if (!LOCAL) return Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
+  const res = await fetch(`/__holes/${id}`);
+  return res.ok ? res.json() : undefined;
+}
+
+async function openHole(id: string) {
+  const data = await holeData(id);
+  if (data === undefined) return status(`Couldn't open ${id}.`);
   remember();
   draft = fromFile(id, data);
   drawing = [];
   selected = null;
   changed();
   status(LOCAL ? `Opened src/holes/${id}.json` : `Opened ${id}.`);
-});
+}
+
+const holeIds = async () =>
+  LOCAL ? ((await (await fetch('/__holes/')).json()) as string[]) : Object.keys(BUILT).map(builtId).sort();
 
 el.save.addEventListener('click', async () => {
   if (!LOCAL) return download();
@@ -874,7 +888,7 @@ function status(text: string) {
 }
 
 async function listHoles() {
-  const ids = LOCAL ? ((await (await fetch('/__holes/')).json()) as string[]) : Object.keys(BUILT).map(builtId).sort();
+  const ids = await holeIds();
   const first = new Option('Open a hole…', '');
   el.load.replaceChildren(first, ...ids.map(id => new Option(id, id)));
 }
@@ -925,9 +939,9 @@ function path(poly: Vec[], close = true) {
 
 // Where the moving parts go, worked out again only when the shapes change.
 let look: { key: string; layout: Layout } | null = null;
-function lookOf(): Layout {
-  const key = JSON.stringify([draft.outline, draft.blocks, draft.ramps, draft.rivers]);
-  if (look?.key !== key) look = { key, layout: layout(draft) };
+function lookOf(shape: Parameters<typeof layout>[0]): Layout {
+  const key = JSON.stringify([shape.outline, shape.blocks, shape.ramps, shape.rivers]);
+  if (look?.key !== key) look = { key, layout: layout(shape) };
   return look.layout;
 }
 
@@ -958,6 +972,15 @@ function draw() {
   ctx.fillRect(0, 0, el.canvas.width, el.canvas.height);
   ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.ox, dpr * view.oy);
   ctx.lineJoin = 'round';
+
+  // The SETS tab shows the hole picked there, as the game draws it.
+  if (tab === 'sets') {
+    if (preview) {
+      drawCourse(pen, preview);
+      drawMoving(pen, preview, lookOf(preview), performance.now());
+    }
+    return;
+  }
 
   // Floor and blocks.
   if (draft.outline.length >= 3) {
@@ -1044,7 +1067,7 @@ function draw() {
   }
 
   drawWalls(pen, draft.outline, draft.blocks);
-  drawMoving(pen, moving(), lookOf(), performance.now());
+  drawMoving(pen, moving(), lookOf(draft), performance.now());
 
   if (tool === 'test') drawTest(px);
 
@@ -1132,6 +1155,49 @@ function handle(p: Vec, r: number, color: string, px: number) {
   ctx.fillRect(p.x - r * px, p.y - r * px, r * 2 * px, r * 2 * px);
 }
 
+// --- Tabs -------------------------------------------------------------------
+
+const sets = setupSets({
+  async holes() {
+    const out = new Map<string, Hole>();
+    for (const id of await holeIds()) {
+      const { hole } = parseHole(await holeData(id));
+      if (hole) out.set(id, hole);
+    }
+    return out;
+  },
+  preview(hole) {
+    preview = hole;
+    draw();
+  },
+  edit(id) {
+    setTab('holes');
+    void openHole(id);
+  },
+});
+
+function setTab(t: Tab) {
+  tab = t;
+  try {
+    localStorage.setItem(TAB_KEY, t);
+  } catch {
+    // Storage off: the editor opens on HOLES next time.
+  }
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#tabs button')) b.classList.toggle('on', b.dataset.tab === t);
+  $('holes-tab').hidden = t !== 'holes';
+  $('sets-tab').hidden = t !== 'sets';
+  if (t === 'sets') {
+    if (tool === 'test') setTool('move');
+    drawing = [];
+    void sets.open();
+  }
+  draw();
+}
+
+for (const b of document.querySelectorAll<HTMLButtonElement>('#tabs button')) {
+  b.addEventListener('click', () => setTab(b.dataset.tab as Tab));
+}
+
 // --- Start ------------------------------------------------------------------
 
 // Saving into the repo needs the dev server.
@@ -1149,3 +1215,10 @@ setTool('move');
 status(kept?.status ?? '');
 changed();
 void listHoles();
+setTab((() => {
+  try {
+    return localStorage.getItem(TAB_KEY) === 'sets' ? 'sets' : 'holes';
+  } catch {
+    return 'holes';
+  }
+})());

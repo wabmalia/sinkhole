@@ -17,6 +17,12 @@
   <aside class="panel">
     <h1>SINKHOLE <span>HOLE EDITOR</span></h1>
 
+    <div class="tabs" id="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="holes">HOLES</button>
+      <button type="button" role="tab" data-tab="sets">SETS</button>
+    </div>
+
+    <div class="tab-body" id="holes-tab">
     <div class="field-row">
       <select id="load" aria-label="Open a hole"></select>
       <button type="button" id="new">NEW</button>
@@ -53,6 +59,26 @@
 
     <p class="keys">Snaps to the grid; hold <kbd>Shift</kbd> to place freely.
       <kbd>⌘Z</kbd> / <kbd>Ctrl Z</kbd> undoes. The dashed box is the size limit.</p>
+    </div>
+
+    <div class="tab-body" id="sets-tab" hidden>
+      <div class="field-row">
+        <select id="set-load" aria-label="Open a set"></select>
+        <button type="button" id="set-new">NEW</button>
+      </div>
+      <label>FILE <input id="set-id" spellcheck="false" autocomplete="off" placeholder="my-set"></label>
+      <label>NAME <input id="set-name" maxlength="24" spellcheck="false" autocomplete="off"></label>
+      <ol class="set-holes" id="set-holes"></ol>
+      <select id="set-add" aria-label="Add a hole"></select>
+      <p class="set-total" id="set-total"></p>
+      <p class="help">The holes are played in this order; one can come up more than once. Click a hole to see it, ✎ to edit it.</p>
+      <ul class="rules" id="set-rules"></ul>
+      <div class="field-row">
+        <button type="button" class="primary" id="set-save">SAVE</button>
+        <button type="button" id="set-copy">COPY JSON</button>
+      </div>
+      <p class="status" id="set-status" role="status"></p>
+    </div>
   </aside>
 
   <script type="module" src="/src/editor/editor.ts"></script>
