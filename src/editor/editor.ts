@@ -1,9 +1,12 @@
 import './editor.css';
-import { CONFIG, PORTAL_TINT } from '../config';
+import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { atRest, step, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { FRAME, holeToJson, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
-import { courseFrom, PORTAL_COLORS, wallLines, type PortalColor, type Rect, type Well } from '../holes/types';
+import { courseFrom, PORTAL_COLORS, type Portal, type PortalColor, type Rect, type Well } from '../holes/types';
+import { drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
+import { drawMoving, layout, type Layout } from '../scene/elements';
+import { canvasPen } from './canvasPen';
 import { probe, shoot, testBall, type Probe } from './testplay';
 
 // A page for sketching holes (editor/index.html). It draws in the hole's own
@@ -97,6 +100,7 @@ const el = {
   status: $('status'),
 };
 const ctx = el.canvas.getContext('2d')!;
+const pen = canvasPen(ctx);
 
 const blank = (): Draft => ({
   id: 'new-hole',
@@ -898,21 +902,19 @@ function renderPanel() {
 // --- Drawing ----------------------------------------------------------------
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+// The game's colours, as CSS, for the editor's own marks.
 const C = {
-  bg: '#12152a',
-  floor: '#1d2140',
-  grid: '#272c52',
-  gridBright: '#353b66',
-  wall: '#5ce1ff',
-  wallCore: '#d8f8ff',
-  mat: '#3b6cf6',
-  cup: '#f2b134',
-  hole: '#05060f',
-  muted: '#c0c4dc',
-  ramp: '#7fb2ff',
-  river: '#3df2c0',
-  black: '#a07cff',
-  white: '#eef0fa',
+  bg: hex(COLORS.bg),
+  floor: hex(COLORS.floor),
+  grid: hex(COLORS.grid),
+  gridBright: hex(COLORS.gridBright),
+  wall: hex(COLORS.wall),
+  mat: hex(COLORS.mat),
+  cup: hex(COLORS.cup),
+  muted: hex(COLORS.muted),
+  ramp: hex(COLORS.ramp),
+  black: hex(COLORS.blackHole),
+  white: hex(COLORS.whiteHole),
 };
 
 function path(poly: Vec[], close = true) {
@@ -920,6 +922,21 @@ function path(poly: Vec[], close = true) {
   poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
   if (close) ctx.closePath();
 }
+
+// Where the moving parts go, worked out again only when the shapes change.
+let look: { key: string; layout: Layout } | null = null;
+function lookOf(): Layout {
+  const key = JSON.stringify([draft.outline, draft.blocks, draft.ramps, draft.rivers]);
+  if (look?.key !== key) look = { key, layout: layout(draft) };
+  return look.layout;
+}
+
+const moving = () => ({
+  ramps: draft.ramps,
+  wells: draft.wells,
+  portals: draft.portals.filter((p): p is Portal => p.b !== null),
+  cup: draft.cup,
+});
 
 const isSelected = (kind: NonNullable<Selection>['kind'], i: number) => selected?.kind === kind && selected.i === i;
 
@@ -940,6 +957,7 @@ function draw() {
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, el.canvas.width, el.canvas.height);
   ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.ox, dpr * view.oy);
+  ctx.lineJoin = 'round';
 
   // Floor and blocks.
   if (draft.outline.length >= 3) {
@@ -964,23 +982,16 @@ function draw() {
   ctx.strokeRect(0, 0, FRAME.w, FRAME.h);
   ctx.setLineDash([]);
 
-  // Rivers and ramps.
-  for (const r of draft.rivers) {
-    ctx.fillStyle = 'rgb(61 242 192 / 0.22)';
-    path(r);
-    ctx.fill();
-    ctx.strokeStyle = C.river;
-    ctx.lineWidth = 1.5 * px;
-    ctx.stroke();
-  }
+  // Rivers, ramps and wells' reach as in the game; a selected one outlined,
+  // and each ramp's downhill arrow with its tip as a handle.
+  drawZones(pen, draft);
   draft.ramps.forEach((r, i) => {
-    ctx.fillStyle = `rgb(127 178 255 / ${0.06 + Math.min(r.strength, 12000) / 40000})`;
-    path(r.area);
-    ctx.fill();
-    ctx.strokeStyle = isSelected('ramp', i) ? C.cup : C.ramp;
-    ctx.lineWidth = 1.5 * px;
-    ctx.stroke();
-    // The downhill arrow, with its tip as a handle.
+    if (isSelected('ramp', i)) {
+      ctx.strokeStyle = C.cup;
+      ctx.lineWidth = 1.5 * px;
+      path(r.area);
+      ctx.stroke();
+    }
     const c = centroid(r.area);
     const tip = arrowTip(r);
     const a = (r.angle * Math.PI) / 180;
@@ -997,44 +1008,31 @@ function draw() {
     ctx.stroke();
   });
 
-  // Tee.
   const t = draft.tee;
-  if (t) {
-    ctx.fillStyle = 'rgb(59 108 246 / 0.18)';
-    ctx.fillRect(t.x, t.y, t.w, t.h);
-    ctx.strokeStyle = C.mat;
-    ctx.lineWidth = 1.5 * px;
-    ctx.strokeRect(t.x, t.y, t.w, t.h);
-  }
+  if (t) drawTee(pen, t);
+  if (draft.cup) drawCup(pen, draft.cup);
 
-  // Cup.
-  if (draft.cup) circle(draft.cup, CONFIG.cup.radius, C.hole, C.cup, 2 * px);
-
-  // Wells: their reach, and the core.
+  // Wells: their reach, dashed so it's easy to grab.
   draft.wells.forEach((w, i) => {
-    const color = w.kind === 'black' ? C.black : C.white;
     ctx.setLineDash([4 * px, 4 * px]);
-    ctx.strokeStyle = isSelected('well', i) ? C.cup : color;
+    ctx.strokeStyle = isSelected('well', i) ? C.cup : w.kind === 'black' ? C.black : C.white;
     ctx.lineWidth = 1.5 * px;
     ctx.beginPath();
     ctx.arc(w.at.x, w.at.y, w.radius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
-    circle(w.at, CONFIG.features.coreRadius, w.kind === 'black' ? C.hole : 'rgb(238 240 250 / 0.5)', color, 2 * px);
   });
 
-  // Portals, the pair joined by a faint line.
+  // Portals: the pair joined by a faint line, an end still waiting for its
+  // pair as a plain ring, and the selected pair ringed.
   draft.portals.forEach((p, i) => {
     const tint = hex(PORTAL_TINT[p.color]);
-    if (p.b) {
-      ctx.setLineDash([3 * px, 6 * px]);
-      line(p.a, p.b, tint, px);
-      ctx.setLineDash([]);
-    }
-    for (const end of [p.a, p.b]) {
-      if (!end) continue;
-      circle(end, CONFIG.features.portalRadius, `${tint}33`, isSelected('portal', i) ? C.cup : tint, 2.5 * px);
-    }
+    if (!p.b) return circle(p.a, CONFIG.features.portalRadius, `${tint}33`, tint, 2.5 * px);
+    ctx.setLineDash([3 * px, 6 * px]);
+    line(p.a, p.b, `${tint}88`, px);
+    ctx.setLineDash([]);
+    if (!isSelected('portal', i)) return;
+    for (const end of [p.a, p.b]) circle(end, CONFIG.features.portalRadius + 4, 'transparent', C.cup, 1.5 * px);
   });
 
   // Whole block outlines, faintly under the walls: the parts outside the course so they can still be grabbed.
@@ -1045,18 +1043,8 @@ function draw() {
     ctx.stroke();
   }
 
-  // Neon walls.
-  ctx.shadowColor = C.wall;
-  ctx.shadowBlur = 8 * dpr;
-  ctx.strokeStyle = C.wallCore;
-  ctx.lineWidth = 2 * px;
-  ctx.lineJoin = 'round';
-  // Only where they border the floor, as in the game.
-  for (const line of wallLines(draft.outline, draft.blocks)) {
-    path(line, false);
-    ctx.stroke();
-  }
-  ctx.shadowBlur = 0;
+  drawWalls(pen, draft.outline, draft.blocks);
+  drawMoving(pen, moving(), lookOf(), performance.now());
 
   if (tool === 'test') drawTest(px);
 
@@ -1150,6 +1138,12 @@ function handle(p: Vec, r: number, color: string, px: number) {
 if (!LOCAL) el.save.textContent = 'DOWNLOAD';
 
 new ResizeObserver(draw).observe(el.stage);
+// The hole's moving parts keep moving, as in the game.
+const tick = () => {
+  draw();
+  requestAnimationFrame(tick);
+};
+requestAnimationFrame(tick);
 document.fonts?.ready.then(draw);
 setTool('move');
 status(kept?.status ?? '');
