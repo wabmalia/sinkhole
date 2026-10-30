@@ -55,9 +55,10 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
     if (speed === 0) continue;
 
     // Rolling resistance plus drag, never reversing the ball. Rivers drag
-    // much harder.
+    // much harder, like water: the faster the ball, the harder.
     const wet = course.rivers.some(r => inside(b.pos, r));
-    const slow = (P.rolling + P.drag * speed + (wet ? F.riverDrag : 0)) * dt;
+    const water = wet ? F.riverDrag + F.riverResist * speed : 0;
+    const slow = (P.rolling + P.drag * speed + water) * dt;
     if (speed - slow <= P.stopSpeed && len(push) <= P.rolling) {
       b.vel = { x: 0, y: 0 };
     } else {
