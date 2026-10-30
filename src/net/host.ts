@@ -1,7 +1,7 @@
 import { createGame, current, EngineError, forfeit, MAX_PLAYERS, play, type Game, type Member } from '../engine/game';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
-import { DEFAULT_HOLE, HOLES } from '../holes';
+import { DEFAULT_HOLE } from '../holes';
 import { cleanName, validAim, validAt, validShot, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 /** One connection to a remote browser. */
@@ -29,11 +29,6 @@ export interface HostEvents {
 
 /** How long a disconnected player's turn waits before they pick up. */
 export const AWAY_MS = 30_000;
-
-// The hole a new room plays. ?hole=<id> picks another, so the editor can open
-// the hole it's working on.
-const asked = new URLSearchParams(globalThis.location?.search).get('hole') ?? '';
-export const HOLE = Object.hasOwn(HOLES, asked) ? asked : DEFAULT_HOLE;
 
 /**
  * The authoritative room, running in the host's browser. Owns the members and
@@ -89,7 +84,7 @@ export class HostRoom {
 
   start() {
     if (this.game && this.game.phase !== 'over') return;
-    this.game = createGame(HOLE, this.members);
+    this.game = createGame(DEFAULT_HOLE, this.members);
     this.changed();
   }
 

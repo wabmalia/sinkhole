@@ -3,8 +3,8 @@ import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { holeToJson, parseHole } from './src/holes/format';
 
-// The hole editor (editor.html) reads and saves holes through this, on the
-// dev server only:
+// The hole editor (editor/) reads and saves holes through this, on the dev
+// server only:
 //   GET  /__holes/       the hole ids
 //   GET  /__holes/<id>   src/holes/<id>.json as it is on disk
 //   POST /__holes/<id>   writes it, once the hole follows the rules
@@ -55,11 +55,17 @@ function holeSaver(): Plugin {
   };
 }
 
-// Relative base so the build works under any GitHub Pages path. Only
-// index.html is built; the editor stays on the dev server.
+// Relative base so the build works under any GitHub Pages path. The editor is
+// built too, as an unlisted page at editor/; there it can download holes but
+// not save them into the repo.
 export default defineConfig({
   base: './',
   plugins: [holeSaver()],
+  build: {
+    rolldownOptions: {
+      input: { game: 'index.html', editor: 'editor/index.html' },
+    },
+  },
   test: {
     include: ['src/**/*.test.ts'],
   },

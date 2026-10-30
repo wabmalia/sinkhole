@@ -6,10 +6,15 @@ import { FRAME, holeToJson, inside, LIMITS, parseHole, type HoleFile } from '../
 import { courseFrom, PORTAL_COLORS, wallLines, type PortalColor, type Rect, type Well } from '../holes/types';
 import { probe, shoot, testBall, type Probe } from './testplay';
 
-// A page for sketching holes, on the dev server only (editor.html isn't part
-// of the build). It draws in the hole's own units inside the size limit,
-// checks the same rules as the game and saves to src/holes/<id>.json through
-// the dev server (see vite.config.ts).
+// A page for sketching holes (editor/index.html). It draws in the hole's own
+// units inside the size limit and checks the same rules as the game. On the
+// dev server it opens and saves src/holes/<id>.json directly (see
+// vite.config.ts); on the site, where there's no server to write to, it opens
+// the holes built into the game and downloads what you make.
+
+const LOCAL = import.meta.env.DEV;
+const BUILT = import.meta.glob<unknown>('../holes/*.json', { eager: true, import: 'default' });
+const builtId = (path: string) => path.slice('../holes/'.length, -'.json'.length);
 
 interface DraftRamp {
   area: Vec[];
@@ -88,7 +93,6 @@ const el = {
   props: $('props'),
   rules: $('rules'),
   save: $<HTMLButtonElement>('save'),
-  play: $<HTMLButtonElement>('play'),
   copy: $<HTMLButtonElement>('copy'),
   status: $('status'),
 };
@@ -118,7 +122,6 @@ let selected: Selection = null;
 let free = false;                  // Shift: no snapping
 let drag: { target: Target; from: Vec; tee: Rect | null; zone: Vec[]; } | null = null;
 let teeFrom: Vec | null = null;
-let savedText = kept?.savedText ?? ''; // the file as last saved or opened
 const history: string[] = [];
 const view = { scale: 1, ox: 0, oy: 0 };
 
@@ -189,7 +192,6 @@ function fromFile(id: string, data: unknown): Draft {
   };
 }
 
-const fileText = () => JSON.stringify(toFile(draft));
 
 // --- Changes and undo -------------------------------------------------------
 
@@ -213,17 +215,16 @@ function changed() {
   draw();
 }
 
-// The draft, what was last saved and the status line survive a reload (Vite
-// reloads the page whenever a hole is saved) and a closed tab.
+// The draft and the status line survive a reload (Vite reloads the page
+// whenever a hole is saved) and a closed tab.
 interface Kept {
   draft: Draft;
-  savedText: string;
   status: string;
 }
 
 function keep() {
   try {
-    const kept: Kept = { draft, savedText, status: el.status.textContent ?? '' };
+    const kept: Kept = { draft, status: el.status.textContent ?? '' };
     localStorage.setItem(STATE_KEY, JSON.stringify(kept));
   } catch {
     // Private mode or storage off: the draft just isn't kept.
@@ -810,7 +811,6 @@ el.fresh.addEventListener('click', () => {
   remember();
   draft = blank();
   selected = null;
-  savedText = '';
   changed();
 });
 
@@ -818,18 +818,24 @@ el.load.addEventListener('change', async () => {
   const id = el.load.value;
   el.load.value = '';
   if (!id) return;
-  const res = await fetch(`/__holes/${id}`);
-  if (!res.ok) return status(`Couldn't open ${id}.`);
+  let data: unknown;
+  if (LOCAL) {
+    const res = await fetch(`/__holes/${id}`);
+    if (!res.ok) return status(`Couldn't open ${id}.`);
+    data = await res.json();
+  } else {
+    data = Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
+  }
   remember();
-  draft = fromFile(id, await res.json());
+  draft = fromFile(id, data);
   drawing = [];
   selected = null;
-  savedText = fileText();
   changed();
-  status(`Opened src/holes/${id}.json`);
+  status(LOCAL ? `Opened src/holes/${id}.json` : `Opened ${id}.`);
 });
 
 el.save.addEventListener('click', async () => {
+  if (!LOCAL) return download();
   const res = await fetch(`/__holes/${draft.id}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -837,12 +843,20 @@ el.save.addEventListener('click', async () => {
   });
   const body = (await res.json()) as { saved?: string; errors?: string[] };
   if (!res.ok) return status(`Not saved: ${(body.errors ?? [String(res.status)]).join('; ')}`);
-  savedText = fileText();
-  renderPanel();
   status(`Saved to ${body.saved}. Tests and the game pick it up from there.`);
 });
 
-el.play.addEventListener('click', () => window.open(`/?hole=${encodeURIComponent(draft.id)}`, '_blank'));
+// On the site: the hole as a file, to put in src/holes/.
+function download() {
+  const { hole } = parseHole(toFile(draft));
+  if (!hole) return;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([holeToJson(hole)], { type: 'application/json' }));
+  link.download = `${draft.id}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  status(`Downloaded ${draft.id}.json. It goes in src/holes/ to be part of the game.`);
+}
 
 el.copy.addEventListener('click', async () => {
   const { hole } = parseHole(toFile(draft));
@@ -856,7 +870,7 @@ function status(text: string) {
 }
 
 async function listHoles() {
-  const ids = (await (await fetch('/__holes/')).json()) as string[];
+  const ids = LOCAL ? ((await (await fetch('/__holes/')).json()) as string[]) : Object.keys(BUILT).map(builtId).sort();
   const first = new Option('Open a hole…', '');
   el.load.replaceChildren(first, ...ids.map(id => new Option(id, id)));
 }
@@ -879,8 +893,6 @@ function renderPanel() {
       : [Object.assign(document.createElement('li'), { textContent: '✓ Follows the rules', className: 'ok' })]),
   );
   el.save.disabled = problems.length > 0;
-  // Play opens the saved file, so only once what's on screen is saved.
-  el.play.disabled = problems.length > 0 || fileText() !== savedText;
 }
 
 // --- Drawing ----------------------------------------------------------------
@@ -1133,6 +1145,9 @@ function handle(p: Vec, r: number, color: string, px: number) {
 }
 
 // --- Start ------------------------------------------------------------------
+
+// Saving into the repo needs the dev server.
+if (!LOCAL) el.save.textContent = 'DOWNLOAD';
 
 new ResizeObserver(draw).observe(el.stage);
 document.fonts?.ready.then(draw);
