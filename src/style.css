@@ -70,12 +70,51 @@ html, body {
 }
 
 .hole-name {
+  display: flex;
+  flex: 1;
+  gap: 0.7em;
+  min-width: 0;
   margin: 0;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
+  white-space: nowrap;
   color: var(--muted);
 }
+
+.hole-name b { color: var(--neon); }
+
+/* The name gives way first, so the count and par always show. */
+.hole-name .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The scores button: a little podium. */
+.icon-btn {
+  flex: none;
+  width: 32px;
+  height: 28px;
+  margin-right: -4px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.icon-btn svg {
+  width: 100%;
+  height: 100%;
+  fill: rgb(92 225 255 / 0.15);
+  stroke: var(--neon);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgb(92 225 255 / 0.7));
+}
+
+.icon-btn .star { fill: var(--gold); stroke: var(--gold); stroke-width: 0.6; }
+.icon-btn:active svg { fill: rgb(92 225 255 / 0.4); }
 
 .hint {
   margin: 0;
@@ -282,7 +321,8 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Centred, but when it's taller than the screen it scrolls from the top. */
+  justify-content: safe center;
   gap: 18px;
   padding: 24px var(--gutter);
   text-align: center;
@@ -492,3 +532,207 @@ html, body {
   transform: translateX(-50%);
   z-index: 20;
 }
+
+/* --- Sets in the lobby --------------------------------------------------- */
+
+.sets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(320px, 100%);
+  margin: -6px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.set {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(18 21 42 / 0.7);
+  color: var(--muted);
+  font: 700 13px var(--font);
+  letter-spacing: 0.08em;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.set:disabled { cursor: default; }
+.set:disabled:not(.on) { opacity: 0.5; }
+.set .set-info { font-size: 10px; letter-spacing: 0.1em; white-space: nowrap; }
+
+.set.on {
+  border-color: var(--gold);
+  color: var(--fg);
+  box-shadow: 0 0 12px -4px var(--gold), inset 0 0 10px -6px var(--gold);
+}
+
+.set.on .set-info { color: var(--gold); }
+
+/* --- Scores -------------------------------------------------------------- */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) var(--gutter) max(16px, env(safe-area-inset-bottom));
+  background: rgb(18 21 42 / 0.6);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+  z-index: 8;
+}
+
+.sheet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(560px, 100%);
+  padding: 14px 14px 16px;
+  border: 1.5px solid var(--neon);
+  border-radius: 6px;
+  background: rgb(18 21 42 / 0.96);
+  box-shadow: 0 0 28px -6px var(--neon);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 10px var(--neon);
+}
+
+.sheet .label { text-align: left; color: var(--gold); }
+
+/* The card scrolls sideways on long sets; the names stay put. */
+.card-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.overlay .card-wrap { width: min(560px, 100%); }
+
+.card {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.card th, .card td {
+  min-width: 26px;
+  padding: 7px 5px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card thead th { font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
+.card .par td, .card .par th { font-size: 10px; color: var(--muted); }
+
+.card .name {
+  position: sticky;
+  left: 0;
+  max-width: 11ch;
+  padding-right: 10px;
+  text-align: left;
+  background: rgb(18 21 42);
+}
+
+.card .name-in {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.card .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+}
+
+.card .now { background: rgb(92 225 255 / 0.07); }
+.card .live { color: var(--muted); font-style: italic; opacity: 0.75; }
+.card .under { color: #5cff9d; }
+.card .tot { color: var(--fg); border-left: 1px solid var(--line); }
+.card tbody .par-diff { color: var(--muted); }
+
+.card .place { min-width: 18px; color: var(--muted); }
+.card .place.p1 { color: var(--gold); text-shadow: 0 0 6px var(--gold); }
+.card .place.p2 { color: #d6dbe8; }
+.card .place.p3 { color: #d98a52; }
+
+/* --- Podium -------------------------------------------------------------- */
+
+.podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  width: min(330px, 100%);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.podium .step {
+  display: flex;
+  flex: 0 1 110px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.podium .who {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c);
+  text-shadow: 0 0 8px var(--c);
+}
+
+.podium .score { font-size: 10px; letter-spacing: 0.08em; color: var(--muted); }
+
+.podium .block {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  padding-top: 8px;
+  border: 1.5px solid var(--neon);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(rgb(92 225 255 / 0.18), rgb(92 225 255 / 0.02));
+  box-shadow: 0 0 14px -4px var(--neon);
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.podium .p1 .block {
+  height: 92px;
+  border-color: var(--gold);
+  background: linear-gradient(rgb(242 177 52 / 0.25), rgb(242 177 52 / 0.02));
+  box-shadow: 0 0 18px -4px var(--gold);
+  color: var(--gold);
+}
+
+.podium .p2 .block { height: 66px; }
+.podium .p3 .block { height: 46px; }

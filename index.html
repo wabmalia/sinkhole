@@ -18,6 +18,12 @@
     <header class="hud">
       <div class="hud-row">
         <p class="hole-name" id="hole-name"></p>
+        <button class="icon-btn" id="board-open" type="button" aria-label="Scores" title="Scores">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8.5 9h7v12h-7zM2 13h6.5v8H2zM15.5 15H22v6h-6.5z" />
+            <path d="M12 2.2l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z" class="star" />
+          </svg>
+        </button>
         <button class="link-btn" id="leave-game" type="button">LEAVE</button>
       </div>
       <ol class="players" id="players"></ol>
@@ -35,6 +41,16 @@
     <p>Tap <b>SHOOT</b> by your ball to fire.</p>
     <p>Before your first shot, <b>drag your ball</b> around the mat.</p>
     <button class="btn" id="intro-ok" type="button">GOT IT</button>
+  </section>
+  <section class="sheet" id="board" hidden>
+    <div class="sheet-card" role="dialog" aria-labelledby="board-title">
+      <header class="sheet-head">
+        <h2 id="board-title">SCORES</h2>
+        <button class="link-btn" id="board-close" type="button" aria-label="Close">✕</button>
+      </header>
+      <p class="label" id="board-set"></p>
+      <div class="card-wrap" id="board-card"></div>
+    </div>
   </section>
   <p class="flash" id="flash" aria-live="polite"></p>
   <p class="toast" id="toast" role="status" hidden></p>
@@ -58,6 +74,7 @@
       </form>
       <p class="or" id="or">or</p>
       <button class="btn btn-big" id="create" type="button">HOST A ROOM</button>
+      <button class="link-btn" id="solo" type="button">PLAY SOLO</button>
     </div>
 
     <div class="panel status" id="connecting" hidden>
@@ -72,18 +89,27 @@
   </section>
 
   <section class="overlay" id="lobby" hidden>
-    <p class="label">ROOM</p>
-    <p class="room-code" id="room-code"></p>
-    <button class="link-btn" id="copy" type="button">COPY INVITE LINK</button>
+    <div class="panel" id="room-info">
+      <p class="label">ROOM</p>
+      <p class="room-code" id="room-code"></p>
+      <button class="link-btn" id="copy" type="button">COPY INVITE LINK</button>
+    </div>
+    <h2 class="title title-small" id="solo-title">SOLO</h2>
     <ol class="members" id="members"></ol>
+    <p class="label">COURSE</p>
+    <ul class="sets" id="sets"></ul>
     <button class="btn btn-big" id="start" type="button">START</button>
     <p class="note" id="waiting">Waiting for the host to start.</p>
     <button class="link-btn" id="leave" type="button">LEAVE</button>
   </section>
 
   <section class="overlay" id="end" hidden>
-    <h2 class="title title-small">HOLE COMPLETE</h2>
+    <h2 class="title title-small" id="end-title">HOLE COMPLETE</h2>
+    <p class="label" id="end-hole"></p>
+    <ol class="podium" id="podium" hidden></ol>
     <ol class="results" id="results"></ol>
+    <div class="card-wrap" id="end-card"></div>
+    <button class="btn btn-big" id="next" type="button">NEXT HOLE</button>
     <button class="btn btn-big" id="again" type="button">PLAY AGAIN</button>
     <button class="link-btn" id="to-lobby" type="button">BACK TO LOBBY</button>
     <p class="note" id="end-waiting">Waiting for the host.</p>

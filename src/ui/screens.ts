@@ -1,12 +1,16 @@
 import { PLAYER_COLORS } from '../config';
 import { scoreLabel, type Game } from '../engine/game';
+import { lastHole, standings } from '../engine/match';
 import { holeOf } from '../holes';
 import { normalizeCode } from '../net/protocol';
 import { session } from '../net/session';
+import { parOf, setIds, setOf, SETS } from '../sets';
 import { css, showGame, toast } from './hud';
+import { podium, scorecard } from './scorecard';
 
-// Home (nickname, join, host), lobby and the end-of-hole results. All plain
-// DOM over the canvas, driven by the session.
+// Home (nickname, join, host, solo), lobby with the set to play, the scores
+// sheet and the end of each hole and of the set. All plain DOM over the
+// canvas, driven by the session.
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -19,20 +23,34 @@ const el = {
   join: $<HTMLButtonElement>('join'),
   or: $('or'),
   create: $<HTMLButtonElement>('create'),
+  solo: $<HTMLButtonElement>('solo'),
   connecting: $('connecting'),
   connectingText: $('connecting-text'),
   cancel: $('cancel'),
   error: $('error'),
   lobby: $('lobby'),
+  roomInfo: $('room-info'),
+  soloTitle: $('solo-title'),
   roomCode: $('room-code'),
   copy: $<HTMLButtonElement>('copy'),
   members: $('members'),
+  sets: $('sets'),
   start: $<HTMLButtonElement>('start'),
   waiting: $('waiting'),
   leave: $('leave'),
   leaveGame: $('leave-game'),
+  boardOpen: $<HTMLButtonElement>('board-open'),
+  board: $('board'),
+  boardClose: $('board-close'),
+  boardSet: $('board-set'),
+  boardCard: $('board-card'),
   end: $('end'),
+  endTitle: $('end-title'),
+  endHole: $('end-hole'),
+  podium: $('podium'),
   results: $('results'),
+  endCard: $('end-card'),
+  next: $<HTMLButtonElement>('next'),
   again: $<HTMLButtonElement>('again'),
   toLobby: $('to-lobby'),
   endWaiting: $('end-waiting'),
@@ -67,14 +85,28 @@ export function setupScreens() {
     session.setName(el.name.value);
     session.hostRoom();
   });
+  el.solo.addEventListener('click', () => {
+    if (el.name.value.trim()) session.setName(el.name.value);
+    session.playSolo();
+  });
   el.cancel.addEventListener('click', () => session.leave());
   el.leave.addEventListener('click', () => session.leave());
   el.leaveGame.addEventListener('click', () => {
-    const msg = session.isHost ? 'Leave? This closes the room for everyone.' : 'Leave the room?';
+    const msg = session.solo ? 'Leave this game?' : session.isHost ? 'Leave? This closes the room for everyone.' : 'Leave the room?';
     if (confirm(msg)) session.leave();
   });
   el.start.addEventListener('click', () => session.start());
   el.again.addEventListener('click', () => session.start());
+  el.next.addEventListener('click', () => session.nextHole());
+  el.boardOpen.addEventListener('click', () => showBoard(true));
+  el.boardClose.addEventListener('click', () => showBoard(false));
+  // A tap outside the card closes it too, and so does Esc.
+  el.board.addEventListener('pointerdown', e => {
+    if (e.target === el.board) showBoard(false);
+  });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !el.board.hidden) showBoard(false);
+  });
   el.toLobby.addEventListener('click', () => session.backToLobby());
   el.copy.addEventListener('click', async () => {
     const url = `${location.origin}${location.pathname}#/join/${session.code}`;
@@ -106,7 +138,7 @@ function render() {
   el.actions.hidden = s.status === 'connecting';
   el.error.hidden = s.status !== 'error';
   el.error.textContent = s.status === 'error' ? s.message : '';
-  el.create.hidden = el.or.hidden = !!linkCode;
+  el.create.hidden = el.or.hidden = el.solo.hidden = !!linkCode;
 
   el.lobby.hidden = !inRoom || !!game;
   if (!game || game.phase !== 'over') {
@@ -114,12 +146,17 @@ function render() {
     endShown = false;
   }
   showGame(!!game && !endShown);
+  if (!game || endShown) el.board.hidden = true;
+  if (!el.board.hidden) renderBoard();
   el.offline.hidden = !inRoom || s.isHost || s.linked;
   if (!inRoom || game) return;
 
+  el.roomInfo.hidden = el.members.hidden = s.solo;
+  el.soloTitle.hidden = !s.solo;
   el.roomCode.textContent = s.code;
   el.start.hidden = !s.isHost;
   el.waiting.hidden = s.isHost;
+  renderSets(room.setId);
   el.members.replaceChildren(
     ...room.members.map((m, i) => {
       const li = document.createElement('li');
@@ -147,11 +184,67 @@ function render() {
   );
 }
 
-// Called by the scene once the final shot has finished rolling.
+// The sets to play, shortest first. The host picks; everyone sees the pick.
+function renderSets(chosen: string) {
+  el.sets.replaceChildren(
+    ...setIds().map(id => {
+      const set = SETS[id]!;
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'set';
+      b.classList.toggle('on', id === chosen);
+      b.disabled = !session.isHost;
+      b.setAttribute('aria-pressed', String(id === chosen));
+      const name = document.createElement('span');
+      name.className = 'set-name';
+      name.textContent = set.name.toUpperCase();
+      const info = document.createElement('span');
+      info.className = 'set-info';
+      const n = set.holes.length;
+      info.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${parOf(set.holes)}`;
+      b.append(name, info);
+      b.addEventListener('click', () => session.chooseSet(id));
+      li.append(b);
+      return li;
+    }),
+  );
+}
+
+// The scores sheet, over the game; it follows the room while open.
+function showBoard(on: boolean) {
+  el.board.hidden = !on;
+  if (on) renderBoard();
+}
+
+function renderBoard() {
+  const room = session.room;
+  if (!room?.match || !room.game) return;
+  el.boardSet.textContent = setOf(room.match.setId).name.toUpperCase();
+  el.boardCard.replaceChildren(scorecard(room.match, room.game));
+}
+
+// Called by the scene once the final shot has finished rolling: how this hole
+// went, the card so far, and the way on (the next hole, or the podium once
+// the set is done).
 export function showEnd(g: Game) {
   if (endShown) return;
   endShown = true;
-  const par = holeOf(g.holeId).par;
+  const match = session.room?.match ?? null;
+  const done = !match || lastHole(match);
+  const hole = holeOf(g.holeId);
+  el.endTitle.textContent = !match ? 'HOLE COMPLETE' : done ? 'FINAL' : `HOLE ${match.index + 1} COMPLETE`;
+  // The hole just played; at the end, the set.
+  el.endHole.textContent =
+    match && done
+      ? `${setOf(match.setId).name.toUpperCase()} · PAR ${parOf(match.holes)}`
+      : `${hole.name.toUpperCase()} · PAR ${hole.par}`;
+
+  el.podium.hidden = !match || !done;
+  if (match && done) el.podium.replaceChildren(...podium(standings(match, g)));
+  // At the end of the set the podium says it all; between holes, this hole.
+  el.results.hidden = !!match && done;
+  const par = hole.par;
   const ranked = [...g.players].sort((a, b) => a.strokes - b.strokes);
   el.results.replaceChildren(
     ...ranked.map(p => {
@@ -173,8 +266,14 @@ export function showEnd(g: Game) {
       return li;
     }),
   );
-  el.again.hidden = el.toLobby.hidden = !session.isHost;
+  el.endCard.replaceChildren(...(match ? [scorecard(match, g)] : []));
+
+  el.next.hidden = !session.isHost || done;
+  el.again.hidden = !session.isHost || !done;
+  el.toLobby.hidden = !session.isHost;
   el.endWaiting.hidden = session.isHost;
   showGame(false);
+  el.board.hidden = true;
   el.end.hidden = false;
+  el.end.scrollTop = 0;
 }

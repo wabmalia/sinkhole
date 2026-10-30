@@ -118,28 +118,28 @@ class Session {
 
   /** Create a room, or resume one this browser was hosting (after a refresh). */
   hostRoom(resumeCode?: string) {
-    const saved = this.openRoom(resumeCode ?? null, newRoomCode());
+    const saved = this.openRoom(resumeCode ?? null, newRoomCode(), 'Host');
     this.set({ status: 'connecting', message: saved ? 'Reopening your room…' : 'Creating room…', room: this.host!.view() });
     this.openHostPeer(this.code, !saved, 0);
   }
 
   /** Play alone, straight to picking a set; or carry on after a refresh. */
   playSolo(resume = false) {
-    this.openRoom(resume ? SOLO : null, SOLO);
+    this.openRoom(resume ? SOLO : null, SOLO, 'Player');
     this.solo = true;
     this.set({ status: 'room', room: this.host!.view() });
     location.hash = '#/solo';
   }
 
   // The host room itself, new or from its saved snapshot. True if resumed.
-  private openRoom(resumeCode: string | null, newCode: string): boolean {
+  private openRoom(resumeCode: string | null, newCode: string, fallbackName: string): boolean {
     this.teardown();
     const saved = resumeCode ? savedHost(resumeCode) : null;
     const code = saved?.code ?? newCode;
     const snap: HostSnapshot = saved ?? {
       code,
       hostId: this.me,
-      members: [{ id: this.me, name: this.name || 'Host' }],
+      members: [{ id: this.me, name: this.name || fallbackName }],
       game: null,
     };
     this.me = snap.hostId;

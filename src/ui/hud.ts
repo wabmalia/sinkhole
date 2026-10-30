@@ -1,8 +1,9 @@
 import { current, type Game } from '../engine/game';
+import type { Match } from '../engine/match';
 import { holeOf } from '../holes';
 import type { MemberView } from '../net/protocol';
 
-// The in-game DOM: HUD, power bar and shoot button. The canvas only draws
+// The in-game DOM: HUD, shoot button and how-to card. The canvas only draws
 // the course.
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -69,9 +70,17 @@ export function courseArea(): { x: number; y: number; w: number; h: number } {
 const byScore = (g: Game) =>
   [...g.players].sort((a, b) => (a.pickedUp ? Infinity : a.strokes) - (b.pickedUp ? Infinity : b.strokes));
 
-export function renderPlayers(g: Game, members: MemberView[]) {
+export function renderPlayers(g: Game, members: MemberView[], match: Match | null) {
+  // Which hole of the set, then its name (cut short if it must be) and par.
   const hole = holeOf(g.holeId);
-  el.holeName.textContent = `${hole.name.toUpperCase()} · PAR ${hole.par}`;
+  const count = document.createElement('b');
+  count.textContent = match ? `${match.index + 1}/${match.holes.length}` : '';
+  const name = document.createElement('span');
+  name.className = 'nm';
+  name.textContent = hole.name.toUpperCase();
+  const par = document.createElement('span');
+  par.textContent = `PAR ${hole.par}`;
+  el.holeName.replaceChildren(...(match ? [count] : []), name, par);
   const online = new Map(members.map(m => [m.id, m.connected]));
   el.players.replaceChildren(
     ...byScore(g).map(p => {

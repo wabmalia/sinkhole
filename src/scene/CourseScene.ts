@@ -172,7 +172,8 @@ export class CourseScene extends Phaser.Scene {
       return;
     }
     this.drawHole(game.holeId);
-    const fresh = !before || game.shots < before.shots || (game.shots === 0 && before.phase === 'over');
+    const fresh =
+      !before || game.holeId !== before.holeId || game.shots < before.shots || (game.shots === 0 && before.phase === 'over');
     if (fresh) this.reset();
     if (fresh || game.shots !== before?.shots) this.beginTurn(game);
     this.refresh();
@@ -211,7 +212,7 @@ export class CourseScene extends Phaser.Scene {
   private refresh() {
     const g = this.shown;
     if (!g) return;
-    ui.renderPlayers(g, session.room?.members ?? []);
+    ui.renderPlayers(g, session.room?.members ?? [], session.room?.match ?? null);
     const mine = this.myTurn();
     const who = g.phase === 'aim' ? current(g).name : '';
     // Your own turn needs no line: the intro card explains it.
