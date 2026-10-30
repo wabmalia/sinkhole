@@ -43,6 +43,7 @@ export interface Layout {
   hexes: Hex[];
   links: [number, number][];
   pixels: Pixel[];
+  floor: Pick<Hole, 'outline' | 'blocks'>;
 }
 
 const HEX = 7;                // river hex radius
@@ -118,7 +119,7 @@ export function layout(hole: Pick<Hole, 'outline' | 'blocks' | 'ramps' | 'rivers
     }
   }
 
-  return { walls, ramps, hexes, links, pixels };
+  return { walls, ramps, hexes, links, pixels, floor: { outline: hole.outline, blocks: hole.blocks } };
 }
 
 // What moves: the hole as far as it's drawn (the editor's may have no cup
@@ -130,7 +131,7 @@ export function drawMoving(fx: Pen, hole: Moving, look: Layout, time: number) {
   drawWalls(fx, look, time);
   drawRamps(fx, hole, look, time);
   drawRivers(fx, look, time);
-  drawWells(fx, hole, time);
+  drawWells(fx, hole, look, time);
   drawPortals(fx, hole, look, time);
 }
 
@@ -273,7 +274,8 @@ function backOut(t: number) {
 // Ripples all the way from the edge. A black hole's fall in and slow down
 // as they reach the horizon, where they pile up; a white hole's burst out of
 // the core and ease off towards the edge. Round the core, an accretion swirl.
-function drawWells(fx: Pen, hole: Moving, time: number) {
+function drawWells(fx: Pen, hole: Moving, look: Layout, time: number) {
+  const onFloor = (p: Vec) => inside(p, look.floor.outline) && !look.floor.blocks.some(b => inside(p, b));
   const core = CONFIG.features.coreRadius;
   const s = time / 1000;
   for (const w of hole.wells) {
@@ -293,7 +295,7 @@ function drawWells(fx: Pen, hole: Moving, time: number) {
       }
       const wobble = 0.03 * (r / w.radius);
       fx.lineStyle(black ? 1 + t * 1.5 : 2.5 - t * 1.5, color, alpha);
-      fx.strokePoints(wobbly(w.at, r, wobble, s * (black ? -1.5 : 1.5) + k), true, true);
+      onlyOn(fx, onFloor, wobbly(w.at, r, wobble, s * (black ? -1.5 : 1.5) + k));
     }
 
     // Swirling arms round the core, inwards for black, outwards for white.
@@ -325,6 +327,34 @@ function drawWells(fx: Pen, hole: Moving, time: number) {
       fx.fillCircle(w.at.x, w.at.y, core * 0.7);
     }
   }
+}
+
+// A closed line, drawn only where it's on the floor: a ripple stops at the
+// walls. Where it crosses one, the crossing is found by halving.
+function onlyOn(fx: Pen, ok: (p: Vec) => boolean, ring: Vec[]) {
+  const inner = ring.map(ok);
+  if (inner.every(Boolean)) return fx.strokePoints(ring, true, true);
+  const edge = (a: Vec, b: Vec) => {
+    let [i, o] = [a, b];
+    for (let n = 0; n < 6; n++) {
+      const m = { x: (i.x + o.x) / 2, y: (i.y + o.y) / 2 };
+      if (ok(m)) i = m;
+      else o = m;
+    }
+    return i;
+  };
+  ring.forEach((a, k) => {
+    const j = (k + 1) % ring.length;
+    const b = ring[j]!;
+    if (inner[k] && inner[j]) fx.lineBetween(a.x, a.y, b.x, b.y);
+    else if (inner[k]) {
+      const e = edge(a, b);
+      fx.lineBetween(a.x, a.y, e.x, e.y);
+    } else if (inner[j]) {
+      const e = edge(b, a);
+      fx.lineBetween(e.x, e.y, b.x, b.y);
+    }
+  });
 }
 
 // A circle with a slow wave running round it.
