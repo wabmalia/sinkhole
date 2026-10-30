@@ -72,7 +72,7 @@ const HELP: Record<Tool, string> = {
   black: 'Click to place a black hole. It pulls balls in and swallows them at the core, like a river. Drag its ring to change its reach.',
   white: 'Click to place a white hole. It pushes balls away. Drag its ring to change its reach.',
   portal: 'Click twice: where the ball goes in, and where it comes out. Each colour is one pair.',
-  test: 'Drag anywhere to pull back and aim, let go to shoot. No sway: every shot goes exactly as aimed. Drag the ball to try a shot from anywhere. Esc puts it back on the tee.',
+  test: 'Drag anywhere the way you want to shoot, further for harder; let go to shoot. No sway: every shot goes exactly as aimed. Drag the ball to try a shot from anywhere. Esc puts it back on the tee.',
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -121,7 +121,7 @@ const test = {
   strokes: 0,
   rolling: false,
   trail: [] as Vec[],
-  aimFrom: null as Vec | null,      // where the pull-back started, screen px
+  aimFrom: null as Vec | null,      // where the aiming drag started, screen px
   aim: null as { angle: number; power: number } | null,
   movingBall: false,
   note: '',
@@ -568,9 +568,9 @@ function testMove(sx: number, sy: number, raw: Vec) {
   if (b && test.movingBall) {
     b.pos = clampFrame(raw);
   } else if (test.aimFrom) {
-    // Pull back like a slingshot, as in the game.
-    const dx = test.aimFrom.x - sx;
-    const dy = test.aimFrom.y - sy;
+    // The shot goes the way you drag, as in the game.
+    const dx = sx - test.aimFrom.x;
+    const dy = sy - test.aimFrom.y;
     test.aim = Math.hypot(dx, dy) < 8 ? null : {
       angle: Math.atan2(dy, dx),
       power: clamp(Math.hypot(dx, dy) / CONFIG.aim.dragFull, CONFIG.aim.minPower, 1),

@@ -272,7 +272,10 @@ export class CourseScene extends Phaser.Scene {
     const ball = current(g).ball!;
     const grab = Math.max(CONFIG.ball.radius * 3, 28 / this.cameras.main.zoom);
     const kind = canPlace(g) && dist(world, ball.pos) < grab ? 'place' : 'aim';
-    this.drag = { kind, start: { x: p.x, y: p.y } };
+    // An aiming drag picks up the aim as it is, as if it had started that
+    // far back: lifting and dragging again adjusts it instead of jumping.
+    const back = kind === 'aim' ? fromAngle(this.aim.angle, this.aim.power * CONFIG.aim.dragFull) : { x: 0, y: 0 };
+    this.drag = { kind, start: { x: p.x - back.x, y: p.y - back.y } };
     if (!this.introSeen) {
       this.introSeen = true;
       this.refresh();
@@ -287,9 +290,9 @@ export class CourseScene extends Phaser.Scene {
       this.aimDirty = true;
       return;
     }
-    // Pull back like a slingshot: the shot goes opposite the drag.
-    const dx = this.drag.start.x - p.x;
-    const dy = this.drag.start.y - p.y;
+    // The shot goes the way you drag, harder the further.
+    const dx = p.x - this.drag.start.x;
+    const dy = p.y - this.drag.start.y;
     const l = Math.hypot(dx, dy);
     if (l < 8) return;
     this.aim.angle = Math.atan2(dy, dx);

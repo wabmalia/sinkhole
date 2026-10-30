@@ -16,9 +16,9 @@ npm run check    # type check
 
 ## Playing
 
-Drag anywhere to pull back and aim (or arrow keys, shift for fine steps); the
-power shows by the arrow. Before your first shot you can drag your ball around
-the tee mat. The aim sways a couple of degrees either side, faster on harder
+Drag anywhere the way you want to shoot, further for harder (or arrow keys,
+shift for fine steps); the power shows by the arrow. Before your first shot
+you can drag your ball around the tee mat. The aim sways a couple of degrees either side, faster on harder
 shots, and SHOOT (the button by your ball, or space) fires wherever it points
 at that moment.
 
