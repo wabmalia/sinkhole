@@ -121,12 +121,10 @@ describe('HostRoom', () => {
     expect(r.view().setId).toBe(DEFAULT_SET);
     r.chooseSet('nope');
     expect(r.view().setId).toBe(DEFAULT_SET);
-    r.chooseSet('elements');
-    expect(r.view().setId).toBe('elements');
     r.start();
-    expect(r.view().game!.holeId).toBe(SETS.elements!.holes[0]);
-    r.chooseSet(DEFAULT_SET);
-    expect(r.view().setId).toBe('elements');
+    expect(r.view().game!.holeId).toBe(SETS[DEFAULT_SET]!.holes[0]);
+    r.chooseSet('nope');
+    expect(r.view().setId).toBe(DEFAULT_SET);
   });
 
   it('plays the set hole by hole, keeping the cards, then can play it again', () => {

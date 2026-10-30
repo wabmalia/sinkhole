@@ -13,7 +13,7 @@ for (const [path, data] of Object.entries(files)) {
   else console.warn(`[sinkhole] set ${id} left out:`, errors);
 }
 
-export const DEFAULT_SET = 'warm-up';
+export const DEFAULT_SET = 'full-course';
 
 export function setOf(id: string): HoleSet {
   return SETS[id] ?? SETS[DEFAULT_SET]!;
