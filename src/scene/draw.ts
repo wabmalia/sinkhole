@@ -1,7 +1,7 @@
 import { COLORS, CONFIG } from '../config';
 import { dist, type Vec } from '../engine/vec';
 import { bounds, wallLines, type Hole, type Rect } from '../holes/types';
-import type { Pen } from './pen';
+import { onFloor, onlyOn, type Pen } from './pen';
 
 // The parts of a hole that never move. The game draws them all once per
 // hole; the editor redraws the pieces it shares (zones, tee, cup, walls)
@@ -43,9 +43,10 @@ export function drawCourse(g: Pen, hole: Hole) {
   drawWalls(g, hole.outline, hole.blocks);
 }
 
-// Rivers and ramps sit on the floor, and each well's reach is a faint ring;
-// their moving parts are in elements.ts.
-export function drawZones(g: Pen, hole: Pick<Hole, 'rivers' | 'ramps' | 'wells'>) {
+// Rivers and ramps sit on the floor, and each well's reach is a faint ring,
+// cut off at the walls; their moving parts are in elements.ts.
+export function drawZones(g: Pen, hole: Pick<Hole, 'outline' | 'blocks' | 'rivers' | 'ramps' | 'wells'>) {
+  const floor = onFloor(hole);
   for (const river of hole.rivers) {
     g.fillStyle(COLORS.river, 0.14);
     g.fillPoints(river, true);
@@ -60,7 +61,11 @@ export function drawZones(g: Pen, hole: Pick<Hole, 'rivers' | 'ramps' | 'wells'>
   }
   for (const w of hole.wells) {
     g.lineStyle(1, w.kind === 'black' ? COLORS.blackHole : COLORS.whiteHole, 0.25);
-    g.strokeCircle(w.at.x, w.at.y, w.radius);
+    const ring = Array.from({ length: 64 }, (_, k) => {
+      const a = (k / 64) * Math.PI * 2;
+      return { x: w.at.x + Math.cos(a) * w.radius, y: w.at.y + Math.sin(a) * w.radius };
+    });
+    onlyOn(g, floor, ring);
   }
 }
 
