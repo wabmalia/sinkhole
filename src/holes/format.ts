@@ -36,7 +36,7 @@ export const LIMITS = {
   rampStrength: [40, 12000], // at the top, 120 units of ramp stop a full-power shot
   wells: 6,
   wellRadius: [30, 220],
-  wellStrength: [100, 2000],
+  wellStrength: [100, 12000], // same top as ramps, at a well's centre
 } as const;
 
 export interface HoleFile {

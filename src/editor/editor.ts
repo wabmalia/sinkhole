@@ -733,7 +733,7 @@ function renderProps() {
   } else if (well) {
     title.textContent = well.kind === 'black' ? 'BLACK HOLE' : 'WHITE HOLE';
     rows.push(slider('REACH', 'radius', well.radius, LIMITS.wellRadius, 5, v => (well.radius = v)));
-    rows.push(slider('STRENGTH', 'strength', well.strength, LIMITS.wellStrength, 50, v => (well.strength = v)));
+    rows.push(slider('STRENGTH', 'strength', well.strength, LIMITS.wellStrength, 40, v => (well.strength = v)));
     const flip = document.createElement('button');
     flip.type = 'button';
     flip.textContent = well.kind === 'black' ? 'MAKE IT WHITE' : 'MAKE IT BLACK';
