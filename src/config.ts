@@ -41,21 +41,13 @@ export const CONFIG = {
     previewMax: 190,
   },
 
-  meter: {
-    // Seconds for the bar to go up and back down, at 0% and 100% target
-    // power. Soft shots get a slow bar, big hits a fast one.
-    cycleAtMin: 3.6,
-    cycleAtMax: 1.8,
-    // Half-width of the perfect zone around the target. Soft shots are
-    // precise touches (slow bar, tight zone); big hits get more room to make
-    // up for the faster bar.
-    windowAtMin: 0.01,
-    windowAtMax: 0.02,
-    // Missing the window costs power (you get roughly what you stopped at)
-    // and bends the shot: over = hook clockwise, under = pull anticlockwise.
-    // Degrees of bend per 10% outside the window, at 0% and at 100% power.
-    bendAtMin: 2,
-    bendAtMax: 9,
+  // Aim sway: the drag sets direction and power exactly, but the aim swings
+  // a little either side, faster on harder shots, and SHOOT fires wherever it
+  // points at that moment.
+  sway: {
+    degrees: 3,           // how far the aim swings either side
+    cycleAtMin: 2.0,      // seconds per full swing at 0% and 100% power
+    cycleAtMax: 0.7,
   },
 
   rules: {

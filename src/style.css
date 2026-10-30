@@ -37,17 +37,15 @@ html, body {
 /* --- In game ------------------------------------------------------------- */
 
 /* The course is tall and narrow, so phones run out of height first: the HUD
-   on top is kept to one row of players, and the power bar, % and SHOOT sit
-   in a column on the right. The scene fits the course into .slot. */
+   on top is kept to one row of players, and SHOOT sits by the ball rather
+   than taking a strip of the screen. The scene fits the course into .slot. */
 .play {
   position: fixed;
   inset: 0;
   max-width: 640px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr 64px;
-  grid-template-rows: auto 1fr auto;
-  column-gap: 8px;
+  grid-template-rows: auto 1fr;
   padding:
     max(10px, env(safe-area-inset-top)) var(--gutter)
     max(14px, env(safe-area-inset-bottom));
@@ -87,7 +85,7 @@ html, body {
   color: var(--muted);
 }
 
-.slot { grid-column: 1; grid-row: 2 / 4; }
+.slot { grid-row: 2; }
 
 /* --- Players ------------------------------------------------------------- */
 
@@ -165,70 +163,7 @@ html, body {
   box-shadow: 0 0 6px var(--c);
 }
 
-/* --- Controls ------------------------------------------------------------ */
-
-.controls {
-  grid-column: 2;
-  grid-row: 3;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding-top: 8px;
-}
-
-.controls .btn {
-  width: 100%;
-  min-width: 0;
-  padding: 16px 0;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-}
-
-.power {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
-/* Fills upwards: bottom is 0%, top is 100%. */
-.meter {
-  grid-column: 2;
-  grid-row: 2;
-  justify-self: center;
-  width: 22px;
-  position: relative;
-  border: 1px solid var(--neon);
-  border-radius: 3px;
-  background: rgb(18 21 42 / 0.85);
-  box-shadow: 0 0 10px -3px var(--neon);
-  overflow: hidden;
-  pointer-events: auto;
-}
-
-.meter-fill {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 0;
-  background: linear-gradient(0deg, rgb(92 225 255 / 0.25), var(--neon));
-}
-
-.meter-window {
-  position: absolute;
-  left: 0;
-  right: 0;
-  background: rgb(242 177 52 / 0.28);
-}
-
-.meter-target {
-  position: absolute;
-  left: -1px;
-  right: -1px;
-  height: 2px;
-  margin-bottom: -1px;
-  background: var(--gold);
-  box-shadow: 0 0 6px var(--gold);
-}
+/* --- Buttons ------------------------------------------------------------- */
 
 .btn {
   min-width: 132px;
@@ -246,12 +181,71 @@ html, body {
 
 .btn:active { background: rgb(92 225 255 / 0.22); }
 .btn:disabled { opacity: 0.4; cursor: default; }
-.btn.stop { border-color: var(--gold); box-shadow: 0 0 14px -2px var(--gold); }
 
 .btn:focus-visible, .link-btn:focus-visible, .field:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 3px;
 }
+
+/* SHOOT, by the ball; the scene moves it. */
+.shoot-here {
+  position: fixed;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border: 1.5px solid var(--neon);
+  border-radius: 50%;
+  background: rgb(18 21 42 / 0.75);
+  color: var(--fg);
+  font: 700 10px var(--font);
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 12px -3px var(--neon), inset 0 0 10px -6px var(--neon);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  touch-action: manipulation;
+  z-index: 4;
+}
+
+.shoot-here:active { background: rgb(92 225 255 / 0.25); }
+
+/* How to shoot, on the first turn of each hole. */
+.intro {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(300px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 20px 18px;
+  border: 1.5px solid var(--neon);
+  border-radius: 6px;
+  background: rgb(18 21 42 / 0.94);
+  box-shadow: 0 0 28px -6px var(--neon);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+}
+
+.intro h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 10px var(--neon);
+}
+
+.intro p {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.intro b { color: var(--fg); }
+.intro .btn { margin-top: 8px; }
 
 /* --- Flash text ---------------------------------------------------------- */
 

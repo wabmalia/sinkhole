@@ -24,18 +24,18 @@
       <p class="hint" id="hint"></p>
     </header>
     <div class="slot" id="slot"></div>
-    <div class="meter" id="meter">
-      <div class="meter-window" id="meter-window"></div>
-      <div class="meter-fill" id="meter-fill"></div>
-      <div class="meter-target" id="meter-target"></div>
-    </div>
-    <div class="controls">
-      <span class="power" id="power"></span>
-      <button class="btn" id="shoot" type="button">SHOOT</button>
-    </div>
   </div>
 
   <p class="tip" id="tip" hidden></p>
+  <button class="shoot-here" id="shoot-here" type="button" hidden>SHOOT</button>
+  <section class="intro" id="intro" hidden>
+    <h2>HOW TO SHOOT</h2>
+    <p><b>Drag anywhere</b> to set the direction and power.</p>
+    <p>The aim <b>sways</b> a little, faster on harder shots.</p>
+    <p>Tap <b>SHOOT</b> by your ball to fire.</p>
+    <p>Before your first shot, <b>drag your ball</b> around the mat.</p>
+    <button class="btn" id="intro-ok" type="button">GOT IT</button>
+  </section>
   <p class="flash" id="flash" aria-live="polite"></p>
   <p class="toast" id="toast" role="status" hidden></p>
   <p class="offline" id="offline" hidden>RECONNECTING TO HOST…</p>
@@ -68,7 +68,7 @@
 
     <p class="how">One browser hosts the room, everyone else joins with the code. Up to 8 players.
       Drag anywhere to pull back and aim; before your first shot, drag your ball around the mat.
-      Hit SHOOT, then stop the bar on your power. Miss it and the shot bends.</p>
+      The aim sways a little, faster on harder shots: tap SHOOT by your ball when it's lined up.</p>
   </section>
 
   <section class="overlay" id="lobby" hidden>

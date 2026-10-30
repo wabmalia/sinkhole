@@ -71,7 +71,7 @@ const HELP: Record<Tool, string> = {
   black: 'Click to place a black hole. It pulls balls in and swallows them at the core, like a river. Drag its ring to change its reach.',
   white: 'Click to place a white hole. It pushes balls away. Drag its ring to change its reach.',
   portal: 'Click twice: where the ball goes in, and where it comes out. Each colour is one pair.',
-  test: 'Drag anywhere to pull back and aim, let go to shoot. No meter: every shot goes exactly as aimed. Drag the ball to try a shot from anywhere. Esc puts it back on the tee.',
+  test: 'Drag anywhere to pull back and aim, let go to shoot. No sway: every shot goes exactly as aimed. Drag the ball to try a shot from anywhere. Esc puts it back on the tee.',
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;

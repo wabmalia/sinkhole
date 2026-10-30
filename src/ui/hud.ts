@@ -1,5 +1,4 @@
 import { current, type Game } from '../engine/game';
-import { perfectWindow, type Shot } from '../engine/shot';
 import { holeOf } from '../holes';
 import type { MemberView } from '../net/protocol';
 
@@ -14,37 +13,48 @@ const el = {
   players: $('players'),
   slot: $('slot'),
   hint: $('hint'),
-  meter: $('meter'),
-  meterWindow: $('meter-window'),
-  meterFill: $('meter-fill'),
-  meterTarget: $('meter-target'),
-  power: $('power'),
-  shoot: $<HTMLButtonElement>('shoot'),
   tip: $('tip'),
   flash: $('flash'),
+  shootHere: $<HTMLButtonElement>('shoot-here'),
+  intro: $('intro'),
+  introOk: $<HTMLButtonElement>('intro-ok'),
   toast: $('toast'),
 };
 
 export const css = (color: number) => `#${color.toString(16).padStart(6, '0')}`;
-const pct = (v: number) => `${Math.round(v * 100)}%`;
-// Exact, for positioning: rounding to whole percents would knock the zone off
-// centre and make the fill step past it.
-const exact = (v: number) => `${v * 100}%`;
 
 export function onShoot(press: () => void) {
-  // pointerdown rather than click: the second press stops the bar, and a
-  // click's delay would cost accuracy.
-  el.shoot.addEventListener('pointerdown', e => {
+  // pointerdown rather than click: the aim keeps swaying, and a click's
+  // delay would fire it somewhere else.
+  el.shootHere.addEventListener('pointerdown', e => {
     e.preventDefault();
     press();
   });
-  el.shoot.addEventListener('keydown', e => {
+  el.shootHere.addEventListener('keydown', e => {
     if (e.key === 'Enter') press();
   });
 }
 
 export function showGame(on: boolean) {
   el.play.hidden = !on;
+  if (!on) el.intro.hidden = el.shootHere.hidden = true;
+}
+
+// How to shoot, in the middle of the screen until dismissed.
+export function showIntro(on: boolean) {
+  el.intro.hidden = !on || el.play.hidden;
+}
+
+export function onIntroDismiss(done: () => void) {
+  el.introOk.addEventListener('click', done);
+}
+
+// The SHOOT button by the ball, at a screen position, or hidden.
+export function placeShoot(at: { x: number; y: number } | null) {
+  el.shootHere.hidden = !at || el.play.hidden;
+  if (!at) return;
+  el.shootHere.style.left = `${at.x}px`;
+  el.shootHere.style.top = `${at.y}px`;
 }
 
 // Where the course goes: the space the HUD leaves, or the whole screen when
@@ -112,23 +122,8 @@ el.players.addEventListener('pointerdown', e => {
   tipTimer = setTimeout(() => (el.tip.hidden = true), 2000);
 });
 
-// 'aim' and 'meter' are my turn; 'watch' is someone else's or a shot rolling.
-export type ControlState = 'aim' | 'meter' | 'watch';
-
-export function renderControls(state: ControlState, power: number, hint: string) {
-  el.power.textContent = pct(power);
-  el.hint.textContent = hint;
-  const w = perfectWindow(power);
-  el.meterTarget.style.bottom = exact(power);
-  el.meterWindow.style.bottom = exact(Math.max(0, power - w));
-  el.meterWindow.style.height = exact(Math.min(1, power + w) - Math.max(0, power - w));
-  el.shoot.disabled = state === 'watch';
-  el.shoot.textContent = state === 'meter' ? 'STOP' : 'SHOOT';
-  el.shoot.classList.toggle('stop', state === 'meter');
-}
-
-export function setMeter(v: number) {
-  el.meterFill.style.height = exact(v);
+export function setHint(text: string) {
+  el.hint.textContent = text;
 }
 
 export function flash(text: string, color?: number) {
@@ -147,10 +142,4 @@ export function toast(text: string) {
   el.toast.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.toast.hidden = true), 3500);
-}
-
-export function shotText(s: Shot): string {
-  if (s.grade === 'perfect') return 'PERFECT';
-  const off = Math.round(Math.abs(s.miss) * 100);
-  return s.grade === 'over' ? `OVER +${off}%` : `UNDER -${off}%`;
 }

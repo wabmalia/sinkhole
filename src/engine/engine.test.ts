@@ -3,53 +3,12 @@ import { CONFIG } from '../config';
 import { courseOf, holeOf } from '../holes';
 import { canPlace, createGame, current, EngineError, forfeit, play, teeSpot } from './game';
 import { settle, shotVelocity, type Ball, type Course } from './physics';
-import { meterAt, meterCycle, perfectWindow, resolveShot } from './shot';
+import { swayAt, type Shot } from './shot';
 
 const UP = -Math.PI / 2;
 const straight = holeOf('straight');
 const course: Course = courseOf('straight');
 const ball = (x: number, y: number, vx = 0, vy = 0, id = 0): Ball => ({ id, pos: { x, y }, vel: { x: vx, y: vy }, sunk: false });
-
-describe('meter', () => {
-  it('goes up then back down each cycle', () => {
-    const c = meterCycle(0.5);
-    expect(meterAt(0, 0.5)).toBe(0);
-    expect(meterAt(c / 2, 0.5)).toBeCloseTo(1);
-    expect(meterAt(c / 4, 0.5)).toBeCloseTo(0.5);
-    expect(meterAt(c, 0.5)).toBeCloseTo(0);
-  });
-
-  it('runs slower with a tighter zone for soft shots, faster with more room for big ones', () => {
-    expect(meterCycle(0.1)).toBeGreaterThan(meterCycle(0.9));
-    expect(perfectWindow(0.1)).toBeLessThan(perfectWindow(0.9));
-  });
-});
-
-describe('resolveShot', () => {
-  it('keeps a stop inside the window exactly as aimed', () => {
-    expect(resolveShot(UP, 0.5, 0.51)).toEqual({ angle: UP, power: 0.5, grade: 'perfect', miss: expect.closeTo(0.01) });
-  });
-
-  it('overshooting adds power and hooks clockwise', () => {
-    const s = resolveShot(UP, 0.5, 0.8);
-    expect(s.grade).toBe('over');
-    expect(s.power).toBeGreaterThan(0.5);
-    expect(s.angle).toBeGreaterThan(UP);
-  });
-
-  it('undershooting loses power and pulls anticlockwise', () => {
-    const s = resolveShot(UP, 0.5, 0.2);
-    expect(s.grade).toBe('under');
-    expect(s.power).toBeLessThan(0.5);
-    expect(s.angle).toBeLessThan(UP);
-  });
-
-  it('bends a big hit more than a soft one for the same miss', () => {
-    const soft = resolveShot(UP, 0.2, 0.4);
-    const hard = resolveShot(UP, 0.8, 1.0);
-    expect(hard.angle - UP).toBeGreaterThan(soft.angle - UP);
-  });
-});
 
 describe('physics', () => {
   it('a ball slows down and stops', () => {
@@ -90,7 +49,7 @@ describe('physics', () => {
 });
 
 describe('game', () => {
-  const perfect = (power: number) => resolveShot(UP, power, power);
+  const perfect = (power: number): Shot => ({ angle: UP, power });
   const members = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
 
   it('only lets the ball be placed on the tee before the first shot', () => {
@@ -135,5 +94,24 @@ describe('game', () => {
     expect(g.players[0]!.pickedUp).toBe(true);
     expect(g.players[0]!.strokes).toBe(CONFIG.rules.maxStrokes + 1);
     expect(g.phase).toBe('over');
+  });
+});
+
+describe('sway', () => {
+  const deg = (r: number) => (r * 180) / Math.PI;
+  const samples = (power: number) => Array.from({ length: 400 }, (_, i) => swayAt(i / 100, power));
+
+  it('swings no more than the set degrees either side', () => {
+    for (const power of [0, 0.5, 1]) {
+      const s = samples(power).map(deg);
+      expect(Math.max(...s)).toBeLessThanOrEqual(CONFIG.sway.degrees + 1e-9);
+      expect(Math.min(...s)).toBeGreaterThanOrEqual(-CONFIG.sway.degrees - 1e-9);
+      expect(Math.max(...s)).toBeGreaterThan(CONFIG.sway.degrees * 0.95);
+    }
+  });
+
+  it('swings faster on harder shots', () => {
+    const crossings = (power: number) => samples(power).filter((v, i, a) => i > 0 && Math.sign(v) !== Math.sign(a[i - 1]!)).length;
+    expect(crossings(1)).toBeGreaterThan(crossings(0));
   });
 });

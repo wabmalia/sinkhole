@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { balls, canPlace, current, launch, teeSpot, type Game } from '../engine/game';
 import { atRest, step, type PhysicsEvent } from '../engine/physics';
-import { meterAt, resolveShot, type Shot } from '../engine/shot';
+import { swayAt, type Shot } from '../engine/shot';
 import { clamp, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { courseOf, DEFAULT_HOLE, holeOf } from '../holes';
 import { inside } from '../holes/format';
@@ -32,6 +32,8 @@ interface Ring {
 type Drag = { kind: 'place' | 'aim'; start: Vec } | null;
 
 const AIM_SEND_MS = 80;
+// Someone else's aim counts as set once no update has come for this long.
+const REMOTE_STILL_MS = 200;
 
 // Draws whatever the session says the game is, animates shots as they come
 // in, and handles aiming when it's this player's turn.
@@ -46,8 +48,13 @@ export class CourseScene extends Phaser.Scene {
   private aim = { angle: -Math.PI / 2, power: 0.4 };
   private remoteAim: Aim | null = null;
   private lastAimSent = 0;
+  // The sway restarts from zero whenever the aim stops changing, so the line
+  // never jumps: from here for my aim, and from the last update for others'.
+  private swaySince = 0;
+  private remoteAimAt = 0;
   private aimDirty = false;
-  private meter: { since: number } | null = null;
+  private introSeen = false;            // how to shoot, once per hole
+  private powerTag!: Phaser.GameObjects.Text; // the % by the aim line
   private drag: Drag = null;
   private accumulator = 0;
   private trails = new Map<number, Trail>(); // by ball id; broken-off pieces get negative keys
@@ -83,8 +90,8 @@ export class CourseScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.pointerDown(p));
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => this.pointerMove(p));
-    this.input.on('pointerup', () => (this.drag = null));
-    this.input.on('pointerupoutside', () => (this.drag = null));
+    this.input.on('pointerup', () => this.endDrag());
+    this.input.on('pointerupoutside', () => this.endDrag());
 
     const kb = this.input.keyboard!;
     this.keys = kb.createCursorKeys();
@@ -99,6 +106,15 @@ export class CourseScene extends Phaser.Scene {
     });
 
     ui.onShoot(() => this.press());
+    ui.onIntroDismiss(() => {
+      this.introSeen = true;
+      this.refresh();
+    });
+    this.powerTag = this.add
+      .text(0, 0, '', { fontFamily: 'Orbitron, sans-serif', fontSize: '12px', fontStyle: '700' })
+      .setOrigin(0.5)
+      .setResolution(window.devicePixelRatio)
+      .setVisible(false);
     session.listen({
       change: () => this.roomChanged(),
       shot: (by, shot, at) => this.animateShot(by, shot, at),
@@ -173,16 +189,16 @@ export class CourseScene extends Phaser.Scene {
   }
 
   private reset() {
+    this.introSeen = false;
     this.trails.clear();
     this.rings = [];
-    this.meter = null;
     this.drag = null;
     this.remoteAim = null;
     this.sent = false;
   }
 
   private beginTurn(g: Game) {
-    this.meter = null;
+    this.swaySince = this.time.now;
     this.sent = false;
     this.remoteAim = null;
     if (g.phase !== 'aim') return;
@@ -205,17 +221,10 @@ export class CourseScene extends Phaser.Scene {
     if (!g) return;
     ui.renderPlayers(g, session.room?.members ?? []);
     const mine = this.myTurn();
-    const state: ui.ControlState = !mine ? 'watch' : this.meter ? 'meter' : 'aim';
     const who = g.phase === 'aim' ? current(g).name : '';
-    const hint =
-      this.rolling ? ''
-      : !mine ? (this.sent ? '' : this.remoteAim?.meter ? `${who} is shooting…` : `${who} is lining up`)
-      : this.meter ? 'Stop the bar on the gold line'
-      : canPlace(g) ? 'Drag your ball on the mat. Drag elsewhere to aim.'
-      : 'Drag anywhere to pull back and aim';
-    const power = mine || !this.remoteAim ? this.aim.power : this.remoteAim.power;
-    ui.renderControls(state, power, hint);
-    if (!this.meter) ui.setMeter(0);
+    // Your own turn needs no line: the intro card explains it.
+    ui.setHint(this.rolling || mine || this.sent ? '' : `${who} is lining up`);
+    ui.showIntro(mine && !this.introSeen);
   }
 
   // Someone else lining up: mirror their aim (and tee position).
@@ -223,6 +232,7 @@ export class CourseScene extends Phaser.Scene {
     const g = this.shown;
     if (!g || this.rolling || g.phase !== 'aim' || current(g).id !== by || by === session.me) return;
     this.remoteAim = aim;
+    this.remoteAimAt = this.time.now;
     if (canPlace(g)) current(g).ball!.pos = teeSpot(g, aim.at);
     this.refresh();
   }
@@ -231,20 +241,14 @@ export class CourseScene extends Phaser.Scene {
 
   private press() {
     const g = this.shown;
-    if (!g || !this.myTurn()) return;
-    if (!this.meter) {
-      this.meter = { since: this.time.now };
-      this.drag = null;
-      this.aimDirty = true;
-    } else {
-      const stopped = meterAt((this.time.now - this.meter.since) / 1000, this.aim.power);
-      this.meter = null;
-      const shot = resolveShot(this.aim.angle, this.aim.power, stopped);
-      ui.flash(ui.shotText(shot), shot.grade === 'perfect' ? COLORS.cup : COLORS.wall);
-      ui.setMeter(stopped);
-      this.sent = true;
-      session.shoot(shot, canPlace(g) ? { ...current(g).ball!.pos } : undefined);
-    }
+    // Not mid-drag: the aim isn't swaying then, so it would be a free shot.
+    if (!g || !this.myTurn() || this.drag) return;
+    // Fires at once, wherever the swaying aim points right now.
+    const a = this.aim;
+    const shot: Shot = { angle: a.angle + this.sway(this.time.now, true, a.power), power: a.power };
+    this.sent = true;
+    this.drag = null;
+    session.shoot(shot, canPlace(g) ? { ...current(g).ball!.pos } : undefined);
     this.refresh();
   }
 
@@ -261,7 +265,6 @@ export class CourseScene extends Phaser.Scene {
     this.accumulator = 0;
     this.remoteAim = null;
     const p = current(sim);
-    if (by !== session.me) ui.flash(ui.shotText(shot), shot.grade === 'perfect' ? COLORS.cup : COLORS.wall);
     this.trails.set(p.ball!.id, { points: [{ ...p.ball!.pos }], color: p.color, laidAt: 0, done: false });
     this.refresh();
   }
@@ -271,20 +274,20 @@ export class CourseScene extends Phaser.Scene {
   private pointerDown(p: Phaser.Input.Pointer) {
     const g = this.shown;
     if (!g || !this.myTurn()) return;
-    if (this.meter) {
-      this.press();
-      return;
-    }
     const world = { x: p.worldX, y: p.worldY };
     const ball = current(g).ball!;
     const grab = Math.max(CONFIG.ball.radius * 3, 28 / this.cameras.main.zoom);
     const kind = canPlace(g) && dist(world, ball.pos) < grab ? 'place' : 'aim';
     this.drag = { kind, start: { x: p.x, y: p.y } };
+    if (!this.introSeen) {
+      this.introSeen = true;
+      this.refresh();
+    }
   }
 
   private pointerMove(p: Phaser.Input.Pointer) {
     const g = this.shown;
-    if (!g || !this.drag || !p.isDown || !this.myTurn() || this.meter) return;
+    if (!g || !this.drag || !p.isDown || !this.myTurn()) return;
     if (this.drag.kind === 'place') {
       current(g).ball!.pos = teeSpot(g, { x: p.worldX, y: p.worldY });
       this.aimDirty = true;
@@ -301,8 +304,21 @@ export class CourseScene extends Phaser.Scene {
     this.refresh();
   }
 
+  private endDrag() {
+    if (this.drag) this.swaySince = this.time.now;
+    this.drag = null;
+  }
+
+  // How far the aim has swayed off (radians). None while the aim is being
+  // set (dragging, arrow keys, or for others while updates keep arriving).
+  private sway(time: number, mine: boolean, power: number): number {
+    if (mine) return this.drag ? 0 : swayAt((time - this.swaySince) / 1000, power);
+    const still = time - this.remoteAimAt - REMOTE_STILL_MS;
+    return still <= 0 ? 0 : swayAt(still / 1000, power);
+  }
+
   private keyboardAim() {
-    if (!this.myTurn() || this.meter) return;
+    if (!this.myTurn()) return;
     const fine = this.shift.isDown ? 0.2 : 1;
     const turn = (CONFIG.aim.keyTurn * fine * Math.PI) / 180;
     let changed = false;
@@ -315,6 +331,7 @@ export class CourseScene extends Phaser.Scene {
     }
     if (changed) {
       this.aimDirty = true;
+      this.swaySince = this.time.now;
       this.refresh();
     }
   }
@@ -324,7 +341,7 @@ export class CourseScene extends Phaser.Scene {
     if (!this.aimDirty || time - this.lastAimSent < AIM_SEND_MS || !this.myTurn()) return;
     this.aimDirty = false;
     this.lastAimSent = time;
-    session.aim({ ...this.aim, at: { ...current(this.shown!).ball!.pos }, meter: !!this.meter });
+    session.aim({ ...this.aim, at: { ...current(this.shown!).ball!.pos } });
   }
 
   // --- Loop ----------------------------------------------------------------
@@ -334,7 +351,6 @@ export class CourseScene extends Phaser.Scene {
     if (g) {
       this.keyboardAim();
       this.sendAim(time);
-      if (this.meter) ui.setMeter(meterAt((time - this.meter.since) / 1000, this.aim.power));
       if (this.rolling) this.roll(g, time, delta);
     }
     this.draw(time);
@@ -430,9 +446,11 @@ export class CourseScene extends Phaser.Scene {
     }
 
     this.drawTags(g);
-    if (!g) return;
+    this.powerTag.setVisible(false);
+    if (!g) return ui.placeShoot(null);
 
     if (g.phase === 'aim' && !this.rolling) this.drawAim(g, time);
+    this.placeShoot(g);
 
     for (const p of g.players) {
       const b = p.ball;
@@ -580,7 +598,10 @@ export class CourseScene extends Phaser.Scene {
 
     // Dashed line along the aim, as long as the power; it doesn't show bounces.
     const length = lerp(CONFIG.aim.previewMin, CONFIG.aim.previewMax, aim.power);
-    const dir = fromAngle(aim.angle);
+    // The line swings as the shot would. Others see the same swing, though
+    // not in step with the shooter's.
+    const angle = aim.angle + this.sway(time, mine, aim.power);
+    const dir = fromAngle(angle);
     const dash = 8;
     const gap = 6;
     const offset = (time / 40) % (dash + gap);
@@ -593,10 +614,43 @@ export class CourseScene extends Phaser.Scene {
       fx.lineBetween(ball.pos.x + dir.x * s0, ball.pos.y + dir.y * s0, ball.pos.x + dir.x * s1, ball.pos.y + dir.y * s1);
     }
     const tip = { x: ball.pos.x + dir.x * length, y: ball.pos.y + dir.y * length };
-    const back = fromAngle(aim.angle + Math.PI, 9);
-    const side = fromAngle(aim.angle + Math.PI / 2, 6);
+    const back = fromAngle(angle + Math.PI, 9);
+    const side = fromAngle(angle + Math.PI / 2, 6);
     fx.lineStyle(2.5, p.color, alpha);
     fx.lineBetween(tip.x, tip.y, tip.x + back.x + side.x, tip.y + back.y + side.y);
     fx.lineBetween(tip.x, tip.y, tip.x + back.x - side.x, tip.y + back.y - side.y);
+
+    // The power, just past the arrow.
+    const zoom = this.cameras.main.zoom;
+    const past = fromAngle(angle, 20 / zoom);
+    this.powerTag
+      .setText(`${Math.round(aim.power * 100)}%`)
+      .setColor(ui.css(p.color))
+      .setAlpha(alpha)
+      .setScale(1 / zoom)
+      .setPosition(tip.x + past.x, tip.y + past.y)
+      .setVisible(true);
+  }
+
+  // SHOOT sits by the ball, behind it (away from the aim line) or else to one
+  // side, while it's this player's turn and they aren't dragging.
+  private placeShoot(g: Game) {
+    if (g.phase !== 'aim' || !this.myTurn() || this.drag) return ui.placeShoot(null);
+    const cam = this.cameras.main;
+    const ball = current(g).ball!;
+    const area = ui.courseArea();
+    const margin = 34;
+    const toScreen = (turn: number) => {
+      const off = fromAngle(this.aim.angle + Math.PI + turn, 56 / cam.zoom);
+      return { x: (ball.pos.x + off.x - cam.worldView.x) * cam.zoom, y: (ball.pos.y + off.y - cam.worldView.y) * cam.zoom };
+    };
+    const fits = (p: Vec) =>
+      p.x >= area.x + margin && p.x <= area.x + area.w - margin && p.y >= area.y + margin && p.y <= area.y + area.h - margin;
+    const spots = [0, 0.6, -0.6, 1.2, -1.2, Math.PI / 2, -Math.PI / 2].map(toScreen);
+    const spot = spots.find(fits) ?? spots[0]!;
+    ui.placeShoot({
+      x: clamp(spot.x, area.x + margin, area.x + area.w - margin),
+      y: clamp(spot.y, area.y + margin, area.y + area.h - margin),
+    });
   }
 }

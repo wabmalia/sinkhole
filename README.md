@@ -16,16 +16,16 @@ npm run check    # type check
 
 ## Playing
 
-Drag anywhere to pull back and aim (or arrow keys, shift for fine steps).
-Before your first shot you can drag your ball around the tee mat. Hit SHOOT
-(or space) and stop the bar on the gold line. Softer shots get a slower bar and
-a tighter zone. Stopping past the zone adds power and hooks the shot clockwise,
-stopping short loses power and pulls it anticlockwise.
+Drag anywhere to pull back and aim (or arrow keys, shift for fine steps); the
+power shows by the arrow. Before your first shot you can drag your ball around
+the tee mat. The aim sways a couple of degrees either side, faster on harder
+shots, and SHOOT (the button by your ball, or space) fires wherever it points
+at that moment.
 
 ## Tuning
 
-Every number lives in `src/config.ts`: ball physics, the cup, aiming, the power
-bar, stroke limit and colours.
+Every number lives in `src/config.ts`: ball physics, the cup, hole elements,
+aiming and its sway, stroke limit and colours.
 
 ## Deploying
 

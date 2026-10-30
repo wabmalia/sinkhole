@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import { settle, shotVelocity, type Ball, type Course } from '../engine/physics';
 import type { Vec } from '../engine/vec';
 
-// Shots for the editor's test tool, with the game's physics but no meter:
+// Shots for the editor's test tool, with the game's physics but no sway:
 // every shot goes exactly where it's aimed, at exactly the power set.
 
 export const testBall = (at: Vec): Ball => ({ id: 0, pos: { ...at }, vel: { x: 0, y: 0 }, sunk: false });

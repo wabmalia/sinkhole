@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAX_PLAYERS } from '../engine/game';
-import { resolveShot } from '../engine/shot';
 import { HostRoom, type Link } from './host';
 import type { RoomView, ToClient } from './protocol';
 
@@ -31,7 +30,7 @@ function room(awayMs = 1000) {
 }
 
 const UP = -Math.PI / 2;
-const shot = resolveShot(UP, 0.3, 0.3);
+const shot = { angle: UP, power: 0.3 };
 
 afterEach(() => vi.useRealTimers());
 
@@ -82,7 +81,7 @@ describe('HostRoom', () => {
   it('ignores malformed shots', () => {
     const { r } = room();
     r.start();
-    expect(r.hostShot({ angle: NaN, power: 1, grade: 'perfect', miss: 0 })).toBe('Bad shot');
+    expect(r.hostShot({ angle: NaN, power: 1 })).toBe('Bad shot');
     expect(r.view().game!.shots).toBe(0);
   });
 
@@ -91,7 +90,7 @@ describe('HostRoom', () => {
     const a = fakeLink();
     r.attach(a).message({ t: 'hello', id: 'p1', name: 'Ana' });
     r.start();
-    const aim = { angle: 1, power: 0.5, at: { x: 1, y: 2 }, meter: false };
+    const aim = { angle: 1, power: 0.5, at: { x: 1, y: 2 } };
     r.hostAim(aim);
     expect(a.inbox.at(-1)).toEqual({ t: 'aim', by: 'host', aim });
   });

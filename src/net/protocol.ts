@@ -23,7 +23,6 @@ export interface Aim {
   angle: number;
   power: number;
   at: Vec;         // ball position (moves while placing on the tee)
-  meter: boolean;  // the power bar is running
 }
 
 export type ToHost =
@@ -66,14 +65,12 @@ const isVec = (v: unknown): v is Vec => !!v && typeof v === 'object' && num((v a
 // Messages come from other browsers, so check the shapes we rely on.
 export function validShot(s: unknown): s is Shot {
   const shot = s as Shot;
-  return !!shot && typeof shot === 'object' && num(shot.angle) && num(shot.power) && num(shot.miss)
-    && ['perfect', 'over', 'under'].includes(shot.grade);
+  return !!shot && typeof shot === 'object' && num(shot.angle) && num(shot.power);
 }
 
 export function validAim(a: unknown): a is Aim {
   const aim = a as Aim;
-  return !!aim && typeof aim === 'object' && num(aim.angle) && num(aim.power) && isVec(aim.at)
-    && typeof aim.meter === 'boolean';
+  return !!aim && typeof aim === 'object' && num(aim.angle) && num(aim.power) && isVec(aim.at);
 }
 
 export const validAt = (v: unknown): v is Vec | undefined => v === undefined || isVec(v);
