@@ -1,8 +1,10 @@
 import type { Game } from '../engine/game';
+import type { Match } from '../engine/match';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 
-export const PEER_PREFIX = 'sinkhole-v1-';
+// v2: rooms play sets (RoomView.match); older pages can't join them.
+export const PEER_PREFIX = 'sinkhole-v2-';
 export const NAME_MAX = 16;
 
 export interface MemberView {
@@ -15,7 +17,9 @@ export interface RoomView {
   code: string;
   hostId: string;
   members: MemberView[];
-  game: Game | null;
+  setId: string;          // the set the host has picked
+  match: Match | null;    // the set being played, with everyone's card
+  game: Game | null;      // the hole being played (or just finished)
 }
 
 // Where the current player is aiming, so everyone can watch them line up.

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CONFIG } from '../config';
 import { MAX_PLAYERS } from '../engine/game';
-import { HostRoom, type Link } from './host';
+import { DEFAULT_SET, SETS } from '../sets';
+import { HostRoom, type HostSnapshot, type Link } from './host';
 import type { RoomView, ToClient } from './protocol';
 
 function fakeLink() {
@@ -19,14 +21,20 @@ function fakeLink() {
 const lastRoom = (link: { inbox: ToClient[] }): RoomView =>
   (link.inbox.filter(m => m.t === 'room').at(-1) as Extract<ToClient, { t: 'room' }>).room;
 
-function room(awayMs = 1000) {
+function room(awayMs = 1000, snap: Partial<HostSnapshot> = {}) {
   const shots: string[] = [];
   const r = new HostRoom(
-    { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Hosty' }], game: null },
+    { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Hosty' }], game: null, ...snap },
     { change: () => {}, shot: by => shots.push(by), aim: () => {}, persist: () => {} },
     awayMs,
   );
   return { r, shots };
+}
+
+// The host alone: nudge the ball until they pick up, which ends the hole.
+function pickUpHole(r: HostRoom) {
+  for (let i = 0; i < CONFIG.rules.maxStrokes; i++) expect(r.hostShot({ angle: Math.PI / 2, power: 0.05 })).toBeNull();
+  expect(r.view().game!.phase).toBe('over');
 }
 
 const UP = -Math.PI / 2;
@@ -106,5 +114,59 @@ describe('HostRoom', () => {
     vi.advanceTimersByTime(1000);
     const p1 = r.view().game!.players[1]!;
     expect(p1.pickedUp).toBe(true);
+  });
+
+  it('picks the set in the lobby only', () => {
+    const { r } = room();
+    expect(r.view().setId).toBe(DEFAULT_SET);
+    r.chooseSet('nope');
+    expect(r.view().setId).toBe(DEFAULT_SET);
+    r.chooseSet('elements');
+    expect(r.view().setId).toBe('elements');
+    r.start();
+    expect(r.view().game!.holeId).toBe(SETS.elements!.holes[0]);
+    r.chooseSet(DEFAULT_SET);
+    expect(r.view().setId).toBe('elements');
+  });
+
+  it('plays the set hole by hole, keeping the cards, then can play it again', () => {
+    const { r } = room();
+    const holes = SETS[DEFAULT_SET]!.holes;
+    r.start();
+    r.nextHole(); // not before the hole is over
+    expect(r.view().match!.index).toBe(0);
+    for (let i = 0; i < holes.length; i++) {
+      expect(r.view().game!.holeId).toBe(holes[i]);
+      r.start(); // not mid-set
+      expect(r.view().match!.index).toBe(i);
+      pickUpHole(r);
+      expect(r.view().match!.cards.host).toHaveLength(i + 1);
+      r.nextHole();
+    }
+    const done = r.view();
+    expect(done.match!.index).toBe(holes.length - 1);
+    expect(done.match!.cards.host).toEqual(holes.map(() => CONFIG.rules.maxStrokes + 1));
+    r.start();
+    expect(r.view().match!.index).toBe(0);
+    expect(r.view().match!.cards.host).toEqual([]);
+    r.backToLobby();
+    expect(r.view().match).toBeNull();
+    expect(r.view().game).toBeNull();
+  });
+
+  it('starts a hole with anyone offline already picked up', () => {
+    const { r } = room();
+    const h = r.attach(fakeLink());
+    h.message({ t: 'hello', id: 'p1', name: 'Ana' });
+    h.closed();
+    r.start();
+    const p1 = r.view().game!.players.find(p => p.id === 'p1')!;
+    expect(p1.pickedUp).toBe(true);
+  });
+
+  it('drops a game saved before sets back to the lobby', () => {
+    const { r } = room(1000, { game: { holeId: 'straight', players: [], turn: 0, phase: 'aim', shots: 0 } });
+    expect(r.view().game).toBeNull();
+    expect(r.view().setId).toBe(DEFAULT_SET);
   });
 });

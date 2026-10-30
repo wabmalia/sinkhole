@@ -1,7 +1,8 @@
-import { createGame, current, EngineError, forfeit, MAX_PLAYERS, play, type Game, type Member } from '../engine/game';
+import { current, EngineError, forfeit, MAX_PLAYERS, play, type Game, type Member } from '../engine/game';
+import { createMatch, lastHole, nextHole, recordHole, type Match } from '../engine/match';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
-import { DEFAULT_HOLE } from '../holes';
+import { DEFAULT_SET, hasSet, setOf } from '../sets';
 import { cleanName, validAim, validAt, validShot, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 /** One connection to a remote browser. */
@@ -14,6 +15,8 @@ export interface HostSnapshot {
   code: string;
   hostId: string;
   members: Member[];
+  setId?: string;
+  match?: Match | null;
   game: Game | null;
 }
 
@@ -38,6 +41,8 @@ export class HostRoom {
   readonly code: string;
   readonly hostId: string;
   private members: Member[];
+  private setId: string;
+  private match: Match | null;
   private game: Game | null;
   private links = new Map<string, Link>();
   private spectators = new Set<Link>();
@@ -51,7 +56,10 @@ export class HostRoom {
     this.code = snap.code;
     this.hostId = snap.hostId;
     this.members = snap.members;
-    this.game = snap.game;
+    this.setId = hasSet(snap.setId) ? snap.setId : DEFAULT_SET;
+    this.match = snap.match ?? null;
+    // A game saved before sets existed has no match: back to the lobby.
+    this.game = this.match ? snap.game : null;
     this.scheduleAway();
   }
 
@@ -82,13 +90,30 @@ export class HostRoom {
 
   // Host-side controls ------------------------------------------------------
 
+  /** Pick the set to play, in the lobby. */
+  chooseSet(id: string) {
+    if (this.game || !hasSet(id)) return;
+    this.setId = id;
+    this.changed();
+  }
+
+  /** Play the chosen set from the first hole: from the lobby, or again once it's over. */
   start() {
-    if (this.game && this.game.phase !== 'over') return;
-    this.game = createGame(DEFAULT_HOLE, this.members);
+    if (this.game && !(this.game.phase === 'over' && this.match && lastHole(this.match))) return;
+    ({ match: this.match, game: this.game } = createMatch(this.setId, setOf(this.setId).holes, this.members, this.absent()));
+    this.changed();
+  }
+
+  /** On to the next hole once this one is over. */
+  nextHole() {
+    const { match, game } = this;
+    if (!match || !game || game.phase !== 'over' || lastHole(match)) return;
+    ({ match: this.match, game: this.game } = nextHole(match, game, this.members, this.absent()));
     this.changed();
   }
 
   backToLobby() {
+    this.match = null;
     this.game = null;
     this.changed();
   }
@@ -120,12 +145,14 @@ export class HostRoom {
         name: m.name,
         connected: m.id === this.hostId || this.links.has(m.id),
       })),
+      setId: this.setId,
+      match: this.match,
       game: this.game,
     };
   }
 
   snapshot(): HostSnapshot {
-    return { code: this.code, hostId: this.hostId, members: this.members, game: this.game };
+    return { code: this.code, hostId: this.hostId, members: this.members, setId: this.setId, match: this.match, game: this.game };
   }
 
   dispose() {
@@ -184,9 +211,20 @@ export class HostRoom {
     }
     this.broadcast({ t: 'shot', by: id, shot, at });
     this.events.shot(id, shot, at);
-    this.game = next;
+    this.setGame(next);
     this.changed();
     return null;
+  }
+
+  // The hole moves on; once it's over, it goes on the cards.
+  private setGame(next: Game) {
+    this.game = next;
+    if (this.match) this.match = recordHole(this.match, next);
+  }
+
+  // Players with no connection right now: they start the next hole picked up.
+  private absent(): Set<string> {
+    return new Set(this.members.filter(m => m.id !== this.hostId && !this.links.has(m.id)).map(m => m.id));
   }
 
   private uniqueName(name: string): string {
@@ -220,7 +258,7 @@ export class HostRoom {
     if (who === this.hostId || this.links.has(who)) return;
     this.away = setTimeout(() => {
       if (this.game !== g) return;
-      this.game = forfeit(g);
+      this.setGame(forfeit(g));
       this.changed();
     }, this.awayMs);
   }

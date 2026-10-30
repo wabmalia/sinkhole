@@ -3,10 +3,12 @@ import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 import { HostRoom, type HostSnapshot } from './host';
 import { iceServers } from './relay';
+import { hasSet } from '../sets';
 import { cleanName, newRoomCode, PEER_PREFIX, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 // The connection side, the same shape as turn7's: one browser hosts the room
-// over PeerJS, the others join by code. Screens listen for changes.
+// over PeerJS, the others join by code. Solo play runs the same host room with
+// no connection at all. Screens listen for changes.
 
 export type Status = 'home' | 'connecting' | 'room' | 'error';
 
@@ -56,6 +58,8 @@ async function peerOptions(): Promise<PeerOptions> {
 }
 
 const snapKey = (code: string) => `sinkhole.host.${code}`;
+// A solo game is saved like a hosted room, under this code.
+const SOLO = 'SOLO';
 
 function savedHost(code: string): HostSnapshot | null {
   const raw = store.get(localStorage, snapKey(code));
@@ -71,6 +75,8 @@ class Session {
   status: Status = 'home';
   message = '';
   role: 'host' | 'client' | null = null;
+  /** Playing alone: a host room with no connection. */
+  solo = false;
   code = '';
   me = tabId();
   room: RoomView | null = null;
@@ -112,9 +118,24 @@ class Session {
 
   /** Create a room, or resume one this browser was hosting (after a refresh). */
   hostRoom(resumeCode?: string) {
+    const saved = this.openRoom(resumeCode ?? null, newRoomCode());
+    this.set({ status: 'connecting', message: saved ? 'Reopening your room…' : 'Creating room…', room: this.host!.view() });
+    this.openHostPeer(this.code, !saved, 0);
+  }
+
+  /** Play alone, straight to picking a set; or carry on after a refresh. */
+  playSolo(resume = false) {
+    this.openRoom(resume ? SOLO : null, SOLO);
+    this.solo = true;
+    this.set({ status: 'room', room: this.host!.view() });
+    location.hash = '#/solo';
+  }
+
+  // The host room itself, new or from its saved snapshot. True if resumed.
+  private openRoom(resumeCode: string | null, newCode: string): boolean {
     this.teardown();
     const saved = resumeCode ? savedHost(resumeCode) : null;
-    const code = saved?.code ?? newRoomCode();
+    const code = saved?.code ?? newCode;
     const snap: HostSnapshot = saved ?? {
       code,
       hostId: this.me,
@@ -130,8 +151,7 @@ class Session {
       aim: (by, aim) => this.emit('aim', by, aim),
       persist: s => store.set(localStorage, snapKey(s.code), JSON.stringify(s)),
     });
-    this.set({ status: 'connecting', message: saved ? 'Reopening your room…' : 'Creating room…', room: this.host.view() });
-    this.openHostPeer(code, !saved, 0);
+    return !!saved;
   }
 
   private async openHostPeer(code: string, fresh: boolean, attempt: number) {
@@ -179,8 +199,14 @@ class Session {
     });
   }
 
+  chooseSet(id: string) {
+    this.host?.chooseSet(id);
+  }
   start() {
     this.host?.start();
+  }
+  nextHole() {
+    this.host?.nextHole();
   }
   backToLobby() {
     this.host?.backToLobby();
@@ -318,6 +344,7 @@ class Session {
     this.peer = null;
     this.room = null;
     this.role = null;
+    this.solo = false;
     this.linked = true;
     this.me = tabId();
   }
@@ -329,9 +356,19 @@ class Session {
 
   /** Called once on page load: resume hosting or rejoin after a refresh. */
   restore() {
+    // Dev shortcut: ?solo=<set> goes straight into a solo game of that set.
+    const quick = import.meta.env.DEV ? new URLSearchParams(location.search).get('solo') : null;
+    if (quick !== null) {
+      history.replaceState(null, '', location.pathname);
+      this.playSolo();
+      if (hasSet(quick)) this.chooseSet(quick);
+      this.start();
+      return;
+    }
     const [, kind, raw] = location.hash.split('/');
     const code = (raw ?? '').toUpperCase();
-    if (kind === 'host' && code && savedHost(code)) this.hostRoom(code);
+    if (kind === 'solo' && savedHost(SOLO)) this.playSolo(true);
+    else if (kind === 'host' && code && savedHost(code)) this.hostRoom(code);
     else if (kind === 'join' && code && store.get(sessionStorage, 'sinkhole.joined') === code) this.joinRoom(code);
   }
 }
