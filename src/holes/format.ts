@@ -1,6 +1,6 @@
 import { CONFIG } from '../config';
-import { closestOnSegment, dist, type Vec } from '../engine/vec';
-import { PORTAL_COLORS, type Hole, type Portal, type PortalColor, type Ramp, type Rect, type Well } from './types';
+import { closestOnSegment, dist, inside, type Vec } from '../engine/vec';
+import { PORTAL_COLORS, wallLines, type Hole, type Portal, type PortalColor, type Ramp, type Rect, type Well } from './types';
 
 // Holes are stored as JSON, written by the editor or by hand, and later sent
 // in by players. parseHole is the one way in: it reads untrusted data, checks
@@ -52,6 +52,9 @@ export interface HoleFile {
   portals?: { color: PortalColor; a: [number, number]; b: [number, number] }[];
 }
 
+// Kept here too, for the code that reads holes.
+export { inside };
+
 export type Parsed = { hole: Hole; errors: [] } | { hole: null; errors: string[] };
 
 export function parseHole(data: unknown): Parsed {
@@ -91,14 +94,18 @@ export function parseHole(data: unknown): Parsed {
 
   // Shape rules, now that the pieces are well formed.
   const walls = [outline, ...solid];
+  // Blocks may run into the outline and into each other; the walls are then
+  // only the parts that border the floor (see wallLines).
+  // Corners alone aren't enough to tell: a block in a corner of the course
+  // has all its corners on the outline. Its edges' middles and its centre
+  // show it covers floor.
   solid.forEach((b, i) => {
-    if (!b.every(p => inside(p, outline)) || crosses(b, outline)) fail(`block ${i + 1}: must sit inside the outline`);
-    solid.forEach((o, j) => {
-      if (j > i && (crosses(b, o) || inside(b[0]!, o) || inside(o[0]!, b))) fail(`blocks ${i + 1} and ${j + 1} overlap`);
-    });
+    const probes = [...b, ...edges(b).map(([p, q]) => ({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 })), centre(b)];
+    if (!probes.some(p => inside(p, outline)) && !crosses(b, outline)) fail(`block ${i + 1}: must overlap the course`);
   });
   const onFloor = (p: Vec) => inside(p, outline) && !solid.some(b => inside(p, b));
-  const clearance = (p: Vec) => Math.min(...walls.flatMap(poly => edges(poly).map(([a, b]) => dist(p, closestOnSegment(p, a, b)))));
+  const segments = wallLines(outline, solid).flatMap(line => line.slice(1).map((b, i): [Vec, Vec] => [line[i]!, b]));
+  const clearance = (p: Vec) => Math.min(...segments.map(([a, b]) => dist(p, closestOnSegment(p, a, b))));
 
   if (!onFloor(cup) || clearance(cup) < CONFIG.cup.radius + CONFIG.ball.radius) {
     fail('cup: must be on the floor, clear of the walls');
@@ -249,18 +256,15 @@ const rectPoints = (r: Rect): Vec[] => [
 ];
 const inRect = (p: Vec, r: Rect) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
 
+const centre = (poly: Vec[]): Vec => ({
+  x: poly.reduce((s, p) => s + p.x, 0) / poly.length,
+  y: poly.reduce((s, p) => s + p.y, 0) / poly.length,
+});
+
 function area(poly: Vec[]): number {
   return edges(poly).reduce((s, [a, b]) => s + a.x * b.y - b.x * a.y, 0) / 2;
 }
 
-// Even-odd ray cast. Points exactly on an edge may land either way.
-export function inside(p: Vec, poly: Vec[]): boolean {
-  let hit = false;
-  for (const [a, b] of edges(poly)) {
-    if ((a.y > p.y) !== (b.y > p.y) && p.x < a.x + ((p.y - a.y) / (b.y - a.y)) * (b.x - a.x)) hit = !hit;
-  }
-  return hit;
-}
 
 // Do two segments cross at a single point inside both? Touching ends don't count.
 function cross(a: Vec, b: Vec, c: Vec, d: Vec): boolean {

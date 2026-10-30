@@ -25,3 +25,14 @@ export function closestOnSegment(p: Vec, a: Vec, b: Vec): Vec {
   const t = clamp(dot(sub(p, a), ab) / l2, 0, 1);
   return { x: a.x + ab.x * t, y: a.y + ab.y * t };
 }
+
+// Even-odd ray cast. Points exactly on an edge may land either way.
+export function inside(p: Vec, poly: Vec[]): boolean {
+  let hit = false;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < a.x + ((p.y - a.y) / (b.y - a.y)) * (b.x - a.x)) hit = !hit;
+  }
+  return hit;
+}

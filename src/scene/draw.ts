@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import { COLORS, CONFIG } from '../config';
-import type { Vec } from '../engine/vec';
-import { bounds, type Hole } from '../holes/types';
+import { dist, type Vec } from '../engine/vec';
+import { bounds, wallLines, type Hole } from '../holes/types';
 
 const GRID = 30;
 
@@ -76,14 +76,15 @@ export function drawCourse(g: Phaser.GameObjects.Graphics, hole: Hole) {
   g.lineStyle(2, COLORS.cup, 1);
   g.strokeCircle(cup.x, cup.y, r);
 
-  // Neon walls: a wide faint glow, a narrower one, then the hot core.
-  for (const poly of [hole.outline, ...hole.blocks]) {
-    g.lineStyle(10, COLORS.wall, 0.1);
-    g.strokePoints(pts(poly), true, true);
-    g.lineStyle(5, COLORS.wall, 0.3);
-    g.strokePoints(pts(poly), true, true);
-    g.lineStyle(2, COLORS.wallCore, 1);
-    g.strokePoints(pts(poly), true, true);
+  // Neon walls: a wide faint glow, a narrower one, then the hot core. Only
+  // the parts that border the floor, where blocks overlap the outline.
+  for (const line of wallLines(hole.outline, hole.blocks)) {
+    const closed = line.length > 3 && dist(line[0]!, line[line.length - 1]!) < 1e-6;
+    const points = pts(closed ? line.slice(0, -1) : line);
+    for (const [width, color, alpha] of [[10, COLORS.wall, 0.1], [5, COLORS.wall, 0.3], [2, COLORS.wallCore, 1]] as const) {
+      g.lineStyle(width, color, alpha);
+      g.strokePoints(points, closed, closed);
+    }
   }
 }
 

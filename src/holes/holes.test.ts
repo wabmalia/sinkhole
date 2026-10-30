@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { holeToJson, parseHole } from './format';
+import { wallLines } from './types';
 
 const files = import.meta.glob<unknown>('./*.json', { eager: true, import: 'default' });
 
@@ -39,8 +40,29 @@ describe('parseHole', () => {
 
   it('rejects broken shapes', () => {
     expect(errorsOf({ outline: [[0, 0], [360, 900], [360, 0], [0, 900]] })).toContain('outline: edges must not cross each other');
-    expect(errorsOf({ blocks: [[[300, 400], [400, 400], [350, 460]]] })).not.toEqual([]);
-    expect(errorsOf({ blocks: [[[150, 400], [210, 400], [180, 460]], [[160, 410], [200, 410], [180, 450]]] })).toContain('blocks 1 and 2 overlap');
+    const narrow = { outline: [[0, 0], [240, 0], [240, 900], [0, 900]], tee: { x: 60, y: 790, w: 120, h: 70 } };
+    expect(errorsOf({ ...narrow, blocks: [[[270, 400], [330, 400], [300, 460]]] })).toContain('block 1: must overlap the course');
+  });
+
+  it('lets blocks run into the outline and each other, keeping only the walls on the floor', () => {
+    const notch = [[300, 400], [400, 400], [400, 460], [300, 460]].map(([x, y]) => [Math.min(x!, 360), y]);
+    const overlapping = [[[150, 400], [210, 400], [180, 460]], [[160, 410], [200, 410], [180, 450]]];
+    expect(errorsOf({ blocks: [notch] })).toEqual([]);
+    expect(errorsOf({ blocks: [[[0, 0], [90, 0], [0, 90]]] })).toEqual([]); // a triangle filling a corner
+    expect(errorsOf({ blocks: overlapping })).toEqual([]);
+
+    // A square notch biting into the right wall.
+    const outline = [{ x: 0, y: 0 }, { x: 360, y: 0 }, { x: 360, y: 900 }, { x: 0, y: 900 }];
+    const block = [{ x: 300, y: 400 }, { x: 420, y: 400 }, { x: 420, y: 460 }, { x: 300, y: 460 }];
+    const lines = wallLines(outline, [block]);
+    const total = lines.reduce((s, l) => s + l.slice(1).reduce((t, p, i) => t + Math.hypot(p.x - l[i]!.x, p.y - l[i]!.y), 0), 0);
+    // Outline perimeter 2520, less the 60 the block covers, plus the block's 60 + 60 + 60 inside.
+    expect(total).toBeCloseTo(2520 - 60 + 180);
+
+    // A triangle filling the top-left corner leaves just its diagonal there.
+    const corner = wallLines(outline, [[{ x: 0, y: 0 }, { x: 90, y: 0 }, { x: 0, y: 90 }]]);
+    const sum = corner.reduce((s, l) => s + l.slice(1).reduce((t, p, i) => t + Math.hypot(p.x - l[i]!.x, p.y - l[i]!.y), 0), 0);
+    expect(sum).toBeCloseTo(2520 - 90 - 90 + Math.hypot(90, 90));
   });
 
   it('wants the cup and tee on open floor', () => {

@@ -3,7 +3,7 @@ import { CONFIG, PORTAL_TINT } from '../config';
 import { atRest, step, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { FRAME, holeToJson, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
-import { courseFrom, PORTAL_COLORS, type PortalColor, type Rect, type Well } from '../holes/types';
+import { courseFrom, PORTAL_COLORS, wallLines, type PortalColor, type Rect, type Well } from '../holes/types';
 import { probe, shoot, testBall, type Probe } from './testplay';
 
 // A page for sketching holes, on the dev server only (editor.html isn't part
@@ -1025,14 +1025,23 @@ function draw() {
     }
   });
 
+  // Whole block outlines, faintly under the walls: the parts outside the course so they can still be grabbed.
+  ctx.strokeStyle = C.gridBright;
+  ctx.lineWidth = px;
+  for (const b of draft.blocks) {
+    path(b);
+    ctx.stroke();
+  }
+
   // Neon walls.
   ctx.shadowColor = C.wall;
   ctx.shadowBlur = 8 * dpr;
   ctx.strokeStyle = C.wallCore;
   ctx.lineWidth = 2 * px;
   ctx.lineJoin = 'round';
-  for (const poly of [draft.outline, ...draft.blocks]) {
-    path(poly);
+  // Only where they border the floor, as in the game.
+  for (const line of wallLines(draft.outline, draft.blocks)) {
+    path(line, false);
     ctx.stroke();
   }
   ctx.shadowBlur = 0;
