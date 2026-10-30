@@ -36,19 +36,33 @@ export interface Game {
   shots: number;       // shots played so far, to tell updates apart
 }
 
-export function createGame(holeId: string, members: Member[]): Game {
-  const players = members.map((m, i): Player => ({
-    id: m.id,
-    name: m.name,
-    color: PLAYER_COLORS[i % PLAYER_COLORS.length]!,
-    strokes: 0,
-    ball: null,
-    teedOff: false,
-    holed: false,
-    pickedUp: false,
-  }));
-  const game: Game = { holeId, players, turn: 0, phase: 'aim', shots: 0 };
-  startTurn(game);
+// Colours follow the seat in the room, so a player keeps theirs from hole to
+// hole. `order` is who plays first (player ids; seat order if left out), and
+// anyone `away` when the hole starts begins it picked up.
+export function createGame(
+  holeId: string,
+  members: Member[],
+  { order, away }: { order?: string[]; away?: ReadonlySet<string> } = {},
+): Game {
+  const seats = new Map(members.map((m, i) => [m.id, i]));
+  const ids = order ? order.filter(id => seats.has(id)) : members.map(m => m.id);
+  for (const m of members) if (!ids.includes(m.id)) ids.push(m.id);
+  const players = ids.map((id): Player => {
+    const seat = seats.get(id)!;
+    return {
+      id,
+      name: members[seat]!.name,
+      color: PLAYER_COLORS[seat % PLAYER_COLORS.length]!,
+      strokes: 0,
+      ball: null,
+      teedOff: false,
+      holed: false,
+      pickedUp: false,
+    };
+  });
+  for (const p of players) if (away?.has(p.id)) pickUp(p);
+  const game: Game = { holeId, players, turn: players.length - 1, phase: 'aim', shots: 0 };
+  nextTurn(game);
   return game;
 }
 
