@@ -22,6 +22,7 @@ const el = {
   code: $<HTMLInputElement>('code'),
   join: $<HTMLButtonElement>('join'),
   or: $('or'),
+  orSolo: $('or-solo'),
   create: $<HTMLButtonElement>('create'),
   solo: $<HTMLButtonElement>('solo'),
   connecting: $('connecting'),
@@ -138,7 +139,7 @@ function render() {
   el.actions.hidden = s.status === 'connecting';
   el.error.hidden = s.status !== 'error';
   el.error.textContent = s.status === 'error' ? s.message : '';
-  el.create.hidden = el.or.hidden = el.solo.hidden = !!linkCode;
+  el.create.hidden = el.or.hidden = el.solo.hidden = el.orSolo.hidden = !!linkCode;
 
   el.lobby.hidden = !inRoom || !!game;
   if (!game || game.phase !== 'over') {

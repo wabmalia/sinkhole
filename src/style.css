@@ -356,6 +356,8 @@ html, body {
 }
 
 .btn-big { min-width: 200px; padding: 15px 28px; font-size: 16px; }
+/* PLAY SOLO and HOST A ROOM, one size. */
+#home-actions .btn-big { width: 220px; }
 
 .how {
   max-width: 340px;
