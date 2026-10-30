@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../config';
 import { MAX_PLAYERS } from '../engine/game';
-import { DEFAULT_SET, SETS } from '../sets';
+import { DEFAULT_SET, holeKeys } from '../sets';
+import { saveBrowserSet } from '../sets/browser';
+import { parseSet } from '../sets/format';
 import { HostRoom, type HostSnapshot, type Link } from './host';
 import type { RoomView, ToClient } from './protocol';
 
@@ -24,7 +26,7 @@ const lastRoom = (link: { inbox: ToClient[] }): RoomView =>
 function room(awayMs = 1000, snap: Partial<HostSnapshot> = {}) {
   const shots: string[] = [];
   const r = new HostRoom(
-    { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Hosty' }], game: null, ...snap },
+    { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Hosty' }], setId: DEFAULT_SET, match: null, game: null, solo: false, ...snap },
     { change: () => {}, shot: by => shots.push(by), aim: () => {}, persist: () => {} },
     awayMs,
   );
@@ -122,14 +124,14 @@ describe('HostRoom', () => {
     r.chooseSet('nope');
     expect(r.view().setId).toBe(DEFAULT_SET);
     r.start();
-    expect(r.view().game!.holeId).toBe(SETS[DEFAULT_SET]!.holes[0]);
+    expect(r.view().game!.holeId).toBe(holeKeys(DEFAULT_SET)[0]);
     r.chooseSet('nope');
     expect(r.view().setId).toBe(DEFAULT_SET);
   });
 
   it('plays the set hole by hole, keeping the cards, then can play it again', () => {
     const { r } = room();
-    const holes = SETS[DEFAULT_SET]!.holes;
+    const holes = holeKeys(DEFAULT_SET);
     r.start();
     r.nextHole(); // not before the hole is over
     expect(r.view().match!.index).toBe(0);
@@ -162,9 +164,35 @@ describe('HostRoom', () => {
     expect(p1.pickedUp).toBe(true);
   });
 
-  it('drops a game saved before sets back to the lobby', () => {
-    const { r } = room(1000, { game: { holeId: 'straight', players: [], turn: 0, phase: 'aim', shots: 0 } });
-    expect(r.view().game).toBeNull();
-    expect(r.view().setId).toBe(DEFAULT_SET);
+  it('drops a match whose set has changed back to the lobby', () => {
+    const { r } = room();
+    r.start();
+    const snap = r.snapshot();
+    const old = { ...snap.match!, holes: snap.match!.holes.slice(1) };
+    const { r: back } = room(1000, { setId: DEFAULT_SET, match: old, game: snap.game });
+    expect(back.view().game).toBeNull();
+    const { r: same } = room(1000, { setId: DEFAULT_SET, match: snap.match, game: snap.game });
+    expect(same.view().game).not.toBeNull();
+  });
+
+  it('plays sets saved in the browser only when solo', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
+    const hole = { name: 'Only', par: 3, outline: [[0, 0], [360, 0], [360, 900], [0, 900]], blocks: [], tee: { x: 120, y: 790, w: 120, h: 70 }, cup: [180, 130] };
+    saveBrowserSet('mine', parseSet({ name: 'Mine', holes: [hole] }).set!);
+    vi.resetModules();
+    const { HostRoom: Fresh } = await import('./host');
+    const make = (solo: boolean) =>
+      new Fresh({ code: 'SOLO', hostId: 'host', members: [{ id: 'host', name: 'Me' }], setId: DEFAULT_SET, match: null, game: null, solo }, { change() {}, shot() {}, aim() {}, persist() {} });
+    const shared = make(false);
+    shared.chooseSet('my:mine');
+    expect(shared.view().setId).toBe(DEFAULT_SET);
+    const solo = make(true);
+    solo.chooseSet('my:mine');
+    expect(solo.view().setId).toBe('my:mine');
+    solo.start();
+    expect(solo.view().game!.holeId).toBe('my:mine/0');
+    expect(solo.snapshot().solo).toBe(true);
+    vi.unstubAllGlobals();
   });
 });

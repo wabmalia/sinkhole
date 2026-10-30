@@ -2,24 +2,17 @@ import './editor.css';
 import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { atRest, step, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
-import { FRAME, holeToJson, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
-import { courseFrom, PORTAL_COLORS, type Hole, type Portal, type PortalColor, type Rect, type Well } from '../holes/types';
-import { drawCourse, drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
+import { FRAME, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
+import { courseFrom, PORTAL_COLORS, type Portal, type PortalColor, type Rect, type Well } from '../holes/types';
+import { drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
 import { drawMoving, layout, type Layout } from '../scene/elements';
 import { canvasPen } from './canvasPen';
 import { setupSets } from './sets';
 import { probe, shoot, testBall, type Probe } from './testplay';
 
-// A page for sketching holes (editor/index.html). It draws in the hole's own
-// units inside the size limit and checks the same rules as the game. On the
-// dev server it opens and saves src/holes/<id>.json directly (see
-// vite.config.ts); on the site, where there's no server to write to, it opens
-// the holes built into the game and downloads what you make. The SETS tab
-// (sets.ts) puts holes together into sets the same way.
-
-const LOCAL = import.meta.env.DEV;
-const BUILT = import.meta.glob<unknown>('../holes/*.json', { eager: true, import: 'default' });
-const builtId = (path: string) => path.slice('../holes/'.length, -'.json'.length);
+// A page for making sets of holes (editor/index.html). This draws one hole at
+// a time, in the hole's own units inside the size limit, and checks the same
+// rules as the game; sets.ts keeps the set's holes together and saves them.
 
 interface DraftRamp {
   area: Vec[];
@@ -34,7 +27,6 @@ interface DraftPortal {
 }
 
 interface Draft {
-  id: string;
   name: string;
   par: number;
   outline: Vec[];
@@ -47,7 +39,6 @@ interface Draft {
   portals: DraftPortal[];
 }
 
-type Tab = 'holes' | 'sets';
 type Tool = 'move' | 'outline' | 'block' | 'tee' | 'cup' | 'ramp' | 'river' | 'black' | 'white' | 'portal' | 'test';
 type Zone = 'blocks' | 'ramps' | 'rivers';
 // Something on the hole that can be picked, dragged or deleted.
@@ -68,8 +59,6 @@ const SNAP = 15;          // half the course grid
 const GRID = 30;
 const MARGIN = 40;        // room around the frame, in hole units
 const HIT = 10;           // how close the pointer must be, in screen pixels
-const STATE_KEY = 'sinkhole-editor';
-const TAB_KEY = 'sinkhole-editor-tab';
 const ARROW = 40;         // length of a ramp's direction arrow, hole units
 
 const HELP: Record<Tool, string> = {
@@ -90,24 +79,17 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const el = {
   stage: $('stage'),
   canvas: $<HTMLCanvasElement>('canvas'),
-  load: $<HTMLSelectElement>('load'),
-  fresh: $<HTMLButtonElement>('new'),
-  id: $<HTMLInputElement>('id'),
   name: $<HTMLInputElement>('name'),
   par: $<HTMLInputElement>('par'),
   tools: $('tools'),
   help: $('help'),
   props: $('props'),
   rules: $('rules'),
-  save: $<HTMLButtonElement>('save'),
-  copy: $<HTMLButtonElement>('copy'),
-  status: $('status'),
 };
 const ctx = el.canvas.getContext('2d')!;
 const pen = canvasPen(ctx);
 
 const blank = (): Draft => ({
-  id: 'new-hole',
   name: 'New hole',
   par: 3,
   outline: [{ x: 0, y: 0 }, { x: FRAME.w, y: 0 }, { x: FRAME.w, y: FRAME.h }, { x: 0, y: FRAME.h }],
@@ -120,11 +102,8 @@ const blank = (): Draft => ({
   portals: [],
 });
 
-const kept = restore();
-let draft: Draft = kept ? { ...blank(), ...kept.draft } : blank();
+let draft: Draft = blank();         // the hole being edited; sets.ts loads it
 let tool: Tool = 'move';
-let tab: Tab = 'holes';
-let preview: Hole | null = null;   // the hole the SETS tab shows
 let drawing: Vec[] = [];           // corners of a shape being placed
 let pointer: Vec | null = null;    // under the mouse, in hole units, snapped
 let hover: Target | null = null;
@@ -172,7 +151,7 @@ function toFile(d: Draft): Partial<HoleFile> {
 }
 
 // Lenient, so a file that breaks the rules can still be opened and fixed.
-function fromFile(id: string, data: unknown): Draft {
+function fromFile(data: unknown): Draft {
   const f = (typeof data === 'object' && data ? data : {}) as Record<string, unknown>;
   const vec = (v: unknown): Vec | null =>
     Array.isArray(v) && typeof v[0] === 'number' && typeof v[1] === 'number' ? { x: v[0], y: v[1] } : null;
@@ -181,8 +160,7 @@ function fromFile(id: string, data: unknown): Draft {
   const n = (v: unknown, or: number) => (typeof v === 'number' ? v : or);
   const t = f.tee as Rect | undefined;
   return {
-    id,
-    name: typeof f.name === 'string' ? f.name : id,
+    name: typeof f.name === 'string' ? f.name : 'Untitled',
     par: n(f.par, 3),
     outline: poly(f.outline),
     blocks: Array.isArray(f.blocks) ? f.blocks.map(poly) : [],
@@ -220,34 +198,9 @@ function undo() {
 }
 
 function changed() {
-  keep();
+  sets.update(toFile(draft));
   renderPanel();
   draw();
-}
-
-// The draft and the status line survive a reload (Vite reloads the page
-// whenever a hole is saved) and a closed tab.
-interface Kept {
-  draft: Draft;
-  status: string;
-}
-
-function keep() {
-  try {
-    const kept: Kept = { draft, status: el.status.textContent ?? '' };
-    localStorage.setItem(STATE_KEY, JSON.stringify(kept));
-  } catch {
-    // Private mode or storage off: the draft just isn't kept.
-  }
-}
-
-function restore(): Kept | null {
-  try {
-    const raw = localStorage.getItem(STATE_KEY);
-    return raw ? (JSON.parse(raw) as Kept) : null;
-  } catch {
-    return null;
-  }
 }
 
 // --- Coordinates ------------------------------------------------------------
@@ -321,7 +274,7 @@ function selectionOf(t: Target): Selection {
 // --- Pointer ----------------------------------------------------------------
 
 el.canvas.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || tab === 'sets') return;
+  if (e.button !== 0) return;
   // Leave the text fields, so the tool keys work again.
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   el.canvas.setPointerCapture(e.pointerId);
@@ -518,7 +471,6 @@ const KEYS: Record<string, Tool> = {
 
 window.addEventListener('keydown', e => {
   free = e.shiftKey;
-  if (tab === 'sets') return;
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
     // Esc leaves the field, so the tool keys work again.
     if (e.key === 'Escape') e.target.blur();
@@ -694,10 +646,6 @@ el.tools.addEventListener('click', e => {
   if (t) setTool(t);
 });
 
-el.id.addEventListener('input', () => {
-  draft.id = el.id.value.trim().toLowerCase();
-  changed();
-});
 el.name.addEventListener('input', () => {
   draft.name = el.name.value;
   changed();
@@ -818,83 +766,9 @@ function slider(label: string, prop: string, value: number, [lo, hi]: readonly [
   return row;
 }
 
-el.fresh.addEventListener('click', () => {
-  remember();
-  draft = blank();
-  selected = null;
-  changed();
-});
-
-el.load.addEventListener('change', () => {
-  const id = el.load.value;
-  el.load.value = '';
-  if (id) void openHole(id);
-});
-
-// A hole file as it is: fresh from disk on the dev server, else built in.
-async function holeData(id: string): Promise<unknown> {
-  if (!LOCAL) return Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
-  const res = await fetch(`/__holes/${id}`);
-  return res.ok ? res.json() : undefined;
-}
-
-async function openHole(id: string) {
-  const data = await holeData(id);
-  if (data === undefined) return status(`Couldn't open ${id}.`);
-  remember();
-  draft = fromFile(id, data);
-  drawing = [];
-  selected = null;
-  changed();
-  status(LOCAL ? `Opened src/holes/${id}.json` : `Opened ${id}.`);
-}
-
-const holeIds = async () =>
-  LOCAL ? ((await (await fetch('/__holes/')).json()) as string[]) : Object.keys(BUILT).map(builtId).sort();
-
-el.save.addEventListener('click', async () => {
-  if (!LOCAL) return download();
-  const res = await fetch(`/__holes/${draft.id}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(toFile(draft)),
-  });
-  const body = (await res.json()) as { saved?: string; errors?: string[] };
-  if (!res.ok) return status(`Not saved: ${(body.errors ?? [String(res.status)]).join('; ')}`);
-  status(`Saved to ${body.saved}. Tests and the game pick it up from there.`);
-});
-
-// On the site: the hole as a file, to put in src/holes/.
-function download() {
-  const { hole } = parseHole(toFile(draft));
-  if (!hole) return;
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([holeToJson(hole)], { type: 'application/json' }));
-  link.download = `${draft.id}.json`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-  status(`Downloaded ${draft.id}.json. It goes in src/holes/ to be part of the game.`);
-}
-
-el.copy.addEventListener('click', async () => {
-  const { hole } = parseHole(toFile(draft));
-  await navigator.clipboard.writeText(hole ? holeToJson(hole) : JSON.stringify(toFile(draft), null, 2));
-  status('Copied.');
-});
-
-function status(text: string) {
-  el.status.textContent = text;
-  keep();
-}
-
-async function listHoles() {
-  const ids = await holeIds();
-  const first = new Option('Open a hole…', '');
-  el.load.replaceChildren(first, ...ids.map(id => new Option(id, id)));
-}
+const status = (text: string) => sets.status(text);
 
 function renderPanel() {
-  if (document.activeElement !== el.id) el.id.value = draft.id;
   if (document.activeElement !== el.name) el.name.value = draft.name;
   if (document.activeElement !== el.par) el.par.value = String(draft.par);
   for (const b of el.tools.querySelectorAll<HTMLButtonElement>('button')) b.classList.toggle('on', b.dataset.tool === tool);
@@ -902,15 +776,13 @@ function renderPanel() {
   renderProps();
 
   const { errors } = parseHole(toFile(draft));
-  const idOk = /^[a-z0-9][a-z0-9-]{0,31}$/.test(draft.id);
   const half = draft.portals.some(p => !p.b) ? ['portals: place the second end'] : [];
-  const problems = [...(idOk ? [] : ['file: lowercase letters, digits and dashes']), ...half, ...errors];
+  const problems = [...half, ...errors];
   el.rules.replaceChildren(
     ...(problems.length
       ? problems.map(p => Object.assign(document.createElement('li'), { textContent: p }))
       : [Object.assign(document.createElement('li'), { textContent: '✓ Follows the rules', className: 'ok' })]),
   );
-  el.save.disabled = problems.length > 0;
 }
 
 // --- Drawing ----------------------------------------------------------------
@@ -972,15 +844,6 @@ function draw() {
   ctx.fillRect(0, 0, el.canvas.width, el.canvas.height);
   ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.ox, dpr * view.oy);
   ctx.lineJoin = 'round';
-
-  // The SETS tab shows the hole picked there, as the game draws it.
-  if (tab === 'sets') {
-    if (preview) {
-      drawCourse(pen, preview);
-      drawMoving(pen, preview, lookOf(preview), performance.now());
-    }
-    return;
-  }
 
   // Floor and blocks.
   if (draft.outline.length >= 3) {
@@ -1157,51 +1020,21 @@ function handle(p: Vec, r: number, color: string, px: number) {
 
 // --- Tabs -------------------------------------------------------------------
 
+// The set panel: picks the hole to edit, and hears of every change to it.
 const sets = setupSets({
-  async holes() {
-    const out = new Map<string, Hole>();
-    for (const id of await holeIds()) {
-      const { hole } = parseHole(await holeData(id));
-      if (hole) out.set(id, hole);
-    }
-    return out;
-  },
-  preview(hole) {
-    preview = hole;
+  load(hole) {
+    draft = fromFile(hole);
+    history.length = 0;
+    drawing = [];
+    selected = null;
+    if (tool === 'test') setTool('move');
+    renderPanel();
     draw();
   },
-  edit(id) {
-    setTab('holes');
-    void openHole(id);
-  },
+  blank: () => toFile(blank()),
 });
 
-function setTab(t: Tab) {
-  tab = t;
-  try {
-    localStorage.setItem(TAB_KEY, t);
-  } catch {
-    // Storage off: the editor opens on HOLES next time.
-  }
-  for (const b of document.querySelectorAll<HTMLButtonElement>('#tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  $('holes-tab').hidden = t !== 'holes';
-  $('sets-tab').hidden = t !== 'sets';
-  if (t === 'sets') {
-    if (tool === 'test') setTool('move');
-    drawing = [];
-    void sets.open();
-  }
-  draw();
-}
-
-for (const b of document.querySelectorAll<HTMLButtonElement>('#tabs button')) {
-  b.addEventListener('click', () => setTab(b.dataset.tab as Tab));
-}
-
-// --- Start ------------------------------------------------------------------
-
-// Saving into the repo needs the dev server.
-if (!LOCAL) el.save.textContent = 'DOWNLOAD';
+// --- Start ---------------------------------------------------------------
 
 new ResizeObserver(draw).observe(el.stage);
 // The hole's moving parts keep moving, as in the game.
@@ -1212,13 +1045,3 @@ const tick = () => {
 requestAnimationFrame(tick);
 document.fonts?.ready.then(draw);
 setTool('move');
-status(kept?.status ?? '');
-changed();
-void listHoles();
-setTab((() => {
-  try {
-    return localStorage.getItem(TAB_KEY) === 'sets' ? 'sets' : 'holes';
-  } catch {
-    return 'holes';
-  }
-})());

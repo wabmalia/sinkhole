@@ -4,7 +4,7 @@ import { balls, canPlace, current, launch, teeSpot, type Game } from '../engine/
 import { atRest, step, type PhysicsEvent } from '../engine/physics';
 import { swayAt, type Shot } from '../engine/shot';
 import { clamp, dist, fromAngle, lerp, type Vec } from '../engine/vec';
-import { courseOf, DEFAULT_HOLE, holeOf } from '../holes';
+import { courseOf, DEFAULT_HOLE, holeOf } from '../sets';
 import { bounds } from '../holes/types';
 import type { Aim } from '../net/protocol';
 import { session } from '../net/session';

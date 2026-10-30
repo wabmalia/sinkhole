@@ -27,14 +27,18 @@ podium button in game shows the scorecard, and after each hole everyone sees
 the results and the card so far until the host goes on. Lowest total wins.
 Whoever did best on a hole plays first on the next one, and anyone offline
 when a hole starts begins it picked up. PLAY SOLO plays a set alone, with no
-connection at all; on the dev server `?solo=<set id>` jumps straight in.
+connection at all, including the sets saved in your browser; on the dev
+server `?solo=<set id>` jumps straight in (`?solo=my:<id>` for a browser set).
 
 ## Holes and sets
 
-Holes are JSON files in `src/holes/`, sets (a name and hole ids in order) in
-`src/sets/`; both are checked by the tests. The editor at `/editor/` draws
-holes and puts them into sets (its HOLES and SETS tabs). On the dev server it
-saves into those folders; on the site it downloads the file instead.
+A set is one JSON file in `src/sets/` holding its name and its holes, in
+order; the tests check every one. The editor at `/editor/` makes sets: add,
+reorder, duplicate and draw their holes, and test any of them with the
+game's physics. SAVE keeps a set in your browser, where PLAY SOLO lists it;
+DOWNLOAD gives you the file to share, and dropped into `src/sets/` it's part
+of the game. On the dev server TO REPO writes it there directly, and DELETE
+removes a set from the browser or the repo (never the default one).
 
 ## Tuning
 

@@ -1,11 +1,24 @@
+import { holeToJson, parseHole } from '../holes/format';
+import type { Hole } from '../holes/types';
+
 // What a set file holds, and the rules for one. A set is a run of holes
-// played in order, by hole id (the file names in src/holes). Set files come
-// from this repo, the editor or a download, so like holes they're checked
-// before use.
+// played in order, and the file carries the holes themselves, so one file is
+// everything needed to play, share or commit it:
+//
+//   {
+//     "name": "Full course",
+//     "holes": [
+//       { "name": "Straight", "par": 2, "outline": [...], ... },
+//       ...
+//     ]
+//   }
+//
+// Set files come from this repo, the editor, a browser or a download, so
+// like holes they're checked before use.
 
 export interface HoleSet {
   name: string;
-  holes: string[];      // hole ids, in playing order; a hole may repeat
+  holes: Hole[];        // in playing order
 }
 
 export const SET_LIMITS = {
@@ -13,13 +26,18 @@ export const SET_LIMITS = {
   holes: [1, 18] as [number, number],
 };
 
+// The set the lobby starts on; it can't be deleted.
+export const DEFAULT_SET = 'full-course';
+
+// File names, for sets in the repo and in a browser alike.
+export const validSetId = (id: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(id);
+
 export interface ParsedSet {
   set: HoleSet | null;
   errors: string[];
 }
 
-// `known` is every hole id a set may use.
-export function parseSet(data: unknown, known: Iterable<string>): ParsedSet {
+export function parseSet(data: unknown): ParsedSet {
   const errors: string[] = [];
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { set: null, errors: ['not a JSON object'] };
   const raw = data as Record<string, unknown>;
@@ -30,18 +48,29 @@ export function parseSet(data: unknown, known: Iterable<string>): ParsedSet {
   }
 
   const [min, max] = SET_LIMITS.holes;
-  const holes = Array.isArray(raw.holes) ? raw.holes : null;
-  if (!holes || holes.length < min || holes.length > max) errors.push(`holes: ${min} to ${max} hole ids`);
-  const ids = new Set(known);
-  (holes ?? []).forEach((h, i) => {
-    if (typeof h !== 'string' || !ids.has(h)) errors.push(`hole ${i + 1}: ${typeof h === 'string' ? `no hole called "${h}"` : 'a hole id'}`);
+  const list = Array.isArray(raw.holes) ? raw.holes : null;
+  if (!list || list.length < min || list.length > max) errors.push(`holes: ${min} to ${max}`);
+  const holes: Hole[] = [];
+  (list ?? []).forEach((h, i) => {
+    const parsed = parseHole(h);
+    if (parsed.hole) holes.push(parsed.hole);
+    else errors.push(...parsed.errors.map(e => `hole ${i + 1}: ${e}`));
   });
 
   if (errors.length) return { set: null, errors };
-  return { set: { name, holes: holes as string[] }, errors };
+  return { set: { name, holes }, errors };
 }
 
-// The file, as the editor saves it.
+// The file, as the editor saves it: each hole laid out as a hole file is.
 export function setToJson(s: HoleSet): string {
-  return `${JSON.stringify({ name: s.name, holes: s.holes }, null, 2)}\n`;
+  const indent = (text: string) => text.trimEnd().replace(/^/gm, '    ');
+  return [
+    '{',
+    `  "name": ${JSON.stringify(s.name)},`,
+    '  "holes": [',
+    s.holes.map(h => indent(holeToJson(h))).join(',\n'),
+    '  ]',
+    '}',
+    '',
+  ].join('\n');
 }

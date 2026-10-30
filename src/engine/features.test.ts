@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { courseOf } from '../holes';
+import { courseOf } from '../sets';
 import { settle, step, type Ball, type Course } from './physics';
 
 // The hole elements on an open 360 × 900 floor, one at a time.
-const open = courseOf('straight');
+const open = courseOf('full-course/0');
 const withOnly = (extra: Partial<Course>): Course => ({ ...open, cup: { x: -100, y: -100 }, ...extra });
 const ball = (x: number, y: number, vx = 0, vy = 0, id = 0): Ball => ({
   id, pos: { x, y }, vel: { x: vx, y: vy }, sunk: false, from: { x, y },

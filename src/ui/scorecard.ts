@@ -1,6 +1,6 @@
 import type { Game } from '../engine/game';
 import { standings, toParLabel, type Match, type Standing } from '../engine/match';
-import { holeOf } from '../holes';
+import { holeOf } from '../sets';
 import { css } from './hud';
 
 // The scorecard (the podium button in game, and the end of each hole) and

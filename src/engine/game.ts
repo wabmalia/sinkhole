@@ -1,5 +1,5 @@
 import { CONFIG, PLAYER_COLORS } from '../config';
-import { courseOf, holeOf } from '../holes';
+import { courseOf, holeOf } from '../sets';
 import { settle, shotVelocity, type Ball, type PhysicsEvent } from './physics';
 import type { Shot } from './shot';
 import { clamp, type Vec } from './vec';

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { courseOf, holeOf } from '../holes';
+import { courseOf, holeOf } from '../sets';
 import { canPlace, createGame, current, EngineError, forfeit, play, teeSpot } from './game';
 import { settle, shotVelocity, type Ball, type Course } from './physics';
 import { swayAt, type Shot } from './shot';
 
 const UP = -Math.PI / 2;
-const straight = holeOf('straight');
-const course: Course = courseOf('straight');
+const straight = holeOf('full-course/0');
+const course: Course = courseOf('full-course/0');
 const ball = (x: number, y: number, vx = 0, vy = 0, id = 0): Ball => ({ id, pos: { x, y }, vel: { x: vx, y: vy }, sunk: false });
 
 describe('physics', () => {
@@ -53,7 +53,7 @@ describe('game', () => {
   const members = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
 
   it('only lets the ball be placed on the tee before the first shot', () => {
-    let g = createGame('straight', members(1));
+    let g = createGame('full-course/0', members(1));
     expect(canPlace(g)).toBe(true);
     const t = straight.tee;
     expect(teeSpot(g, { x: 0, y: 0 })).toEqual({ x: t.x + CONFIG.ball.radius, y: t.y + CONFIG.ball.radius });
@@ -63,7 +63,7 @@ describe('game', () => {
   });
 
   it('takes turns and refuses shots out of turn', () => {
-    let g = createGame('straight', members(3));
+    let g = createGame('full-course/0', members(3));
     expect(() => play(g, 'p1', perfect(0.1))).toThrow(EngineError);
     g = play(g, 'p0', perfect(0.1)).game;
     expect(current(g).id).toBe('p1');
@@ -74,14 +74,14 @@ describe('game', () => {
   });
 
   it('does not change the state it was given', () => {
-    const g = createGame('straight', members(1));
+    const g = createGame('full-course/0', members(1));
     play(g, 'p0', perfect(0.5));
     expect(g.players[0]!.strokes).toBe(0);
     expect(g.shots).toBe(0);
   });
 
   it('a holed ball finishes that player', () => {
-    let g = createGame('straight', members(1));
+    let g = createGame('full-course/0', members(1));
     g.players[0]!.ball!.pos = { x: 180, y: 200 };
     g = play(g, 'p0', perfect(0.12)).game;
     expect(g.players[0]!.holed).toBe(true);
@@ -89,7 +89,7 @@ describe('game', () => {
   });
 
   it('picks the ball up after too many strokes and ends when nobody is left', () => {
-    let g = createGame('straight', members(1));
+    let g = createGame('full-course/0', members(1));
     for (let i = 0; i < CONFIG.rules.maxStrokes; i++) g = play(g, 'p0', perfect(0)).game;
     expect(g.players[0]!.pickedUp).toBe(true);
     expect(g.players[0]!.strokes).toBe(CONFIG.rules.maxStrokes + 1);

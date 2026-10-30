@@ -3,8 +3,8 @@ import type { Match } from '../engine/match';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 
-// v2: rooms play sets (RoomView.match); older pages can't join them.
-export const PEER_PREFIX = 'sinkhole-v2-';
+// Bumped whenever the messages change, so pages on different versions never meet.
+export const PEER_PREFIX = 'sinkhole-v3-';
 export const NAME_MAX = 16;
 
 export interface MemberView {

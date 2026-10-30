@@ -1,6 +1,6 @@
 import { current, type Game } from '../engine/game';
 import type { Match } from '../engine/match';
-import { holeOf } from '../holes';
+import { holeOf } from '../sets';
 import type { MemberView } from '../net/protocol';
 
 // The in-game DOM: HUD, shoot button and how-to card. The canvas only draws

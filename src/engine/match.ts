@@ -1,4 +1,4 @@
-import { holeOf } from '../holes';
+import { holeOf } from '../sets';
 import { createGame, type Game, type Member } from './game';
 
 // A set played hole after hole. The current hole is an ordinary Game; the
@@ -6,7 +6,7 @@ import { createGame, type Game, type Member } from './game';
 
 export interface Match {
   setId: string;
-  holes: string[];                  // hole ids, in playing order
+  holes: string[];                  // hole keys ("<set id>/<n>"), in playing order
   index: number;                    // the hole being played
   cards: Record<string, number[]>;  // strokes on each finished hole, by player id
 }

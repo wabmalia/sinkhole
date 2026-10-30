@@ -181,24 +181,20 @@ kbd {
 
 .status:empty { display: none; }
 
-.tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+h2.section {
+  margin: 6px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--gold);
 }
 
-.tabs button.on {
-  border-color: var(--neon);
-  color: var(--neon);
-  box-shadow: 0 0 10px -4px var(--neon);
-}
+button.danger:not(:disabled) { color: var(--accent); }
+button.danger:not(:disabled):hover { border-color: var(--accent); }
 
-.tab-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 12px;
-}
+.set-foot { align-items: center; }
 
 .set-holes {
   display: flex;
@@ -211,7 +207,7 @@ kbd {
 
 .set-holes li {
   display: grid;
-  grid-template-columns: 1fr auto repeat(4, 26px);
+  grid-template-columns: 1fr auto repeat(4, 24px);
   align-items: center;
   gap: 4px;
 }
@@ -243,3 +239,5 @@ kbd {
   letter-spacing: 0.12em;
   color: var(--neon);
 }
+
+.set-foot .set-total { flex: none; white-space: nowrap; }

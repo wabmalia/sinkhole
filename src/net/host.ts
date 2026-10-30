@@ -2,7 +2,7 @@ import { current, EngineError, forfeit, MAX_PLAYERS, play, type Game, type Membe
 import { createMatch, lastHole, nextHole, recordHole, type Match } from '../engine/match';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
-import { DEFAULT_SET, hasSet, setOf } from '../sets';
+import { DEFAULT_SET, hasSet, holeKeys, isBrowserSet } from '../sets';
 import { cleanName, validAim, validAt, validShot, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 /** One connection to a remote browser. */
@@ -15,8 +15,11 @@ export interface HostSnapshot {
   code: string;
   hostId: string;
   members: Member[];
-  setId?: string;
-  match?: Match | null;
+  setId: string;
+  match: Match | null;
+  // Solo rooms can also play the sets saved in this browser; a room can't,
+  // since its guests don't have them.
+  solo: boolean;
   game: Game | null;
 }
 
@@ -41,6 +44,7 @@ export class HostRoom {
   readonly code: string;
   readonly hostId: string;
   private members: Member[];
+  private readonly solo: boolean;
   private setId: string;
   private match: Match | null;
   private game: Game | null;
@@ -56,9 +60,13 @@ export class HostRoom {
     this.code = snap.code;
     this.hostId = snap.hostId;
     this.members = snap.members;
-    this.setId = hasSet(snap.setId) ? snap.setId : DEFAULT_SET;
-    this.match = snap.match ?? null;
-    // A game saved before sets existed has no match: back to the lobby.
+    this.solo = snap.solo;
+    this.setId = this.playable(snap.setId) ? snap.setId : DEFAULT_SET;
+    // Back to the lobby if the saved match's set is gone or has changed (a
+    // browser set edited or deleted since).
+    const m = snap.match;
+    const keys = m && this.playable(m.setId) ? holeKeys(m.setId) : [];
+    this.match = m && m.holes.length === keys.length && m.holes.every((k, i) => k === keys[i]) ? m : null;
     this.game = this.match ? snap.game : null;
     this.scheduleAway();
   }
@@ -92,7 +100,7 @@ export class HostRoom {
 
   /** Pick the set to play, in the lobby. */
   chooseSet(id: string) {
-    if (this.game || !hasSet(id)) return;
+    if (this.game || !this.playable(id)) return;
     this.setId = id;
     this.changed();
   }
@@ -100,7 +108,7 @@ export class HostRoom {
   /** Play the chosen set from the first hole: from the lobby, or again once it's over. */
   start() {
     if (this.game && !(this.game.phase === 'over' && this.match && lastHole(this.match))) return;
-    ({ match: this.match, game: this.game } = createMatch(this.setId, setOf(this.setId).holes, this.members, this.absent()));
+    ({ match: this.match, game: this.game } = createMatch(this.setId, holeKeys(this.setId), this.members, this.absent()));
     this.changed();
   }
 
@@ -110,6 +118,10 @@ export class HostRoom {
     if (!match || !game || game.phase !== 'over' || lastHole(match)) return;
     ({ match: this.match, game: this.game } = nextHole(match, game, this.members, this.absent()));
     this.changed();
+  }
+
+  private playable(id: unknown): id is string {
+    return hasSet(id) && (this.solo || !isBrowserSet(id));
   }
 
   backToLobby() {
@@ -152,7 +164,8 @@ export class HostRoom {
   }
 
   snapshot(): HostSnapshot {
-    return { code: this.code, hostId: this.hostId, members: this.members, setId: this.setId, match: this.match, game: this.game };
+    const { code, hostId, members, setId, match, game, solo } = this;
+    return { code, hostId, members, setId, match, game, solo };
   }
 
   dispose() {

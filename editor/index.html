@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sinkhole hole editor</title>
+  <title>Sinkhole set editor</title>
   <!-- Unlisted: the editor isn't linked from the game. -->
   <meta name="robots" content="noindex">
   <link rel="icon" href="../icon.svg" type="image/svg+xml">
@@ -15,20 +15,24 @@
   </main>
 
   <aside class="panel">
-    <h1>SINKHOLE <span>HOLE EDITOR</span></h1>
+    <h1>SINKHOLE <span>SET EDITOR</span></h1>
 
-    <div class="tabs" id="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="holes">HOLES</button>
-      <button type="button" role="tab" data-tab="sets">SETS</button>
-    </div>
-
-    <div class="tab-body" id="holes-tab">
     <div class="field-row">
-      <select id="load" aria-label="Open a hole"></select>
+      <select id="open" aria-label="Open a set"></select>
       <button type="button" id="new">NEW</button>
     </div>
+    <input type="file" id="file" accept=".json,application/json" hidden>
 
-    <label>FILE <input id="id" spellcheck="false" autocomplete="off" placeholder="my-hole"></label>
+    <label>FILE <input id="set-id" spellcheck="false" autocomplete="off" placeholder="my-set"></label>
+    <label>SET <input id="set-name" maxlength="24" spellcheck="false" autocomplete="off"></label>
+
+    <ol class="set-holes" id="set-holes"></ol>
+    <div class="field-row set-foot">
+      <button type="button" id="add-hole">+ HOLE</button>
+      <p class="set-total" id="set-total"></p>
+    </div>
+
+    <h2 class="section" id="hole-title">HOLE 1</h2>
     <label>NAME <input id="name" maxlength="24" spellcheck="false" autocomplete="off"></label>
     <label>PAR <input id="par" type="number" min="2" max="6" step="1"></label>
 
@@ -51,34 +55,21 @@
 
     <ul class="rules" id="rules"></ul>
 
+    <h2 class="section">SET</h2>
+    <ul class="rules" id="set-rules"></ul>
     <div class="field-row">
       <button type="button" class="primary" id="save">SAVE</button>
-      <button type="button" id="copy">COPY JSON</button>
+      <button type="button" id="download">DOWNLOAD</button>
+    </div>
+    <div class="field-row">
+      <button type="button" id="to-repo" hidden>TO REPO</button>
+      <button type="button" class="danger" id="delete">DELETE</button>
     </div>
     <p class="status" id="status" role="status"></p>
 
-    <p class="keys">Snaps to the grid; hold <kbd>Shift</kbd> to place freely.
+    <p class="keys">SAVE keeps the set in this browser, where PLAY SOLO finds it.
+      Snaps to the grid; hold <kbd>Shift</kbd> to place freely.
       <kbd>⌘Z</kbd> / <kbd>Ctrl Z</kbd> undoes. The dashed box is the size limit.</p>
-    </div>
-
-    <div class="tab-body" id="sets-tab" hidden>
-      <div class="field-row">
-        <select id="set-load" aria-label="Open a set"></select>
-        <button type="button" id="set-new">NEW</button>
-      </div>
-      <label>FILE <input id="set-id" spellcheck="false" autocomplete="off" placeholder="my-set"></label>
-      <label>NAME <input id="set-name" maxlength="24" spellcheck="false" autocomplete="off"></label>
-      <ol class="set-holes" id="set-holes"></ol>
-      <select id="set-add" aria-label="Add a hole"></select>
-      <p class="set-total" id="set-total"></p>
-      <p class="help">The holes are played in this order; one can come up more than once. Click a hole to see it, ✎ to edit it.</p>
-      <ul class="rules" id="set-rules"></ul>
-      <div class="field-row">
-        <button type="button" class="primary" id="set-save">SAVE</button>
-        <button type="button" id="set-copy">COPY JSON</button>
-      </div>
-      <p class="status" id="set-status" role="status"></p>
-    </div>
   </aside>
 
   <script type="module" src="/src/editor/editor.ts"></script>

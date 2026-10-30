@@ -3,7 +3,7 @@ import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 import { HostRoom, type HostSnapshot } from './host';
 import { iceServers } from './relay';
-import { hasSet } from '../sets';
+import { DEFAULT_SET, hasSet } from '../sets';
 import { cleanName, newRoomCode, PEER_PREFIX, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 // The connection side, the same shape as turn7's: one browser hosts the room
@@ -140,7 +140,10 @@ class Session {
       code,
       hostId: this.me,
       members: [{ id: this.me, name: this.name || fallbackName }],
+      setId: DEFAULT_SET,
+      match: null,
       game: null,
+      solo: code === SOLO,
     };
     this.me = snap.hostId;
     this.role = 'host';

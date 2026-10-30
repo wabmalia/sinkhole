@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { holeToJson, parseHole } from './format';
 import { wallLines } from './types';
 
-const files = import.meta.glob<unknown>('./*.json', { eager: true, import: 'default' });
-
 const good = {
   name: 'Test',
   par: 3,
@@ -13,18 +11,6 @@ const good = {
   cup: [180, 130],
 };
 const errorsOf = (change: Record<string, unknown>) => parseHole({ ...good, ...change }).errors;
-
-describe('hole files', () => {
-  it('has at least one', () => expect(Object.keys(files).length).toBeGreaterThan(0));
-
-  for (const [path, data] of Object.entries(files)) {
-    it(`${path} follows the rules`, () => expect(parseHole(data).errors).toEqual([]));
-    it(`${path} is saved in the editor's format`, async () => {
-      const raw = (await import(`${path}?raw`)) as { default: string };
-      expect(raw.default).toBe(holeToJson(parseHole(data).hole!));
-    });
-  }
-});
 
 describe('parseHole', () => {
   it('accepts a good hole and survives a round trip', () => {

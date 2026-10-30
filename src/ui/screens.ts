@@ -1,10 +1,10 @@
 import { PLAYER_COLORS } from '../config';
 import { scoreLabel, type Game } from '../engine/game';
 import { lastHole, standings } from '../engine/match';
-import { holeOf } from '../holes';
 import { normalizeCode } from '../net/protocol';
 import { session } from '../net/session';
-import { parOf, setIds, setOf, SETS } from '../sets';
+import { onBrowserSets } from '../sets/browser';
+import { holeKeys, holeOf, isBrowserSet, parOf, setIds, setOf } from '../sets';
 import { css, showGame, toast } from './hud';
 import { podium, scorecard } from './scorecard';
 
@@ -184,11 +184,15 @@ function render() {
   );
 }
 
+// The editor, open in another tab, saved or deleted a set.
+onBrowserSets(() => session.room && !session.room.game && renderSets(session.room.setId));
+
 // The sets to play, shortest first. The host picks; everyone sees the pick.
+// Solo play lists the sets saved in this browser too.
 function renderSets(chosen: string) {
   el.sets.replaceChildren(
-    ...setIds().map(id => {
-      const set = SETS[id]!;
+    ...setIds(session.solo).map(id => {
+      const set = setOf(id);
       const li = document.createElement('li');
       const b = document.createElement('button');
       b.type = 'button';
@@ -202,7 +206,8 @@ function renderSets(chosen: string) {
       const info = document.createElement('span');
       info.className = 'set-info';
       const n = set.holes.length;
-      info.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${parOf(set.holes)}`;
+      const mine = isBrowserSet(id) ? ' · YOURS' : '';
+      info.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${parOf(holeKeys(id))}${mine}`;
       b.append(name, info);
       b.addEventListener('click', () => session.chooseSet(id));
       li.append(b);

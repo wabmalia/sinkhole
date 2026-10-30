@@ -1,242 +1,353 @@
-import type { Hole } from '../holes/types';
-import { parseSet, setToJson, type HoleSet } from '../sets/format';
+import type { HoleFile } from '../holes/format';
+import { browserSets, deleteBrowserSet, saveBrowserSet } from '../sets/browser';
+import { DEFAULT_SET, parseSet, setToJson, validSetId, type HoleSet } from '../sets/format';
+import { parseHole } from '../holes/format';
 
-// The SETS tab: put holes in order, name the set and save it. Like holes,
-// sets save into src/sets/ on the dev server and download on the site. Any
-// hole file that follows the rules can go in; the canvas previews the one
-// clicked.
+// The set being made: its name, file name and holes, in order. The canvas
+// edits one hole at a time (editor.ts); this side keeps the set together and
+// saves it. SAVE keeps it in this browser, where PLAY SOLO finds it;
+// DOWNLOAD gives the file to share or commit; on the dev server TO REPO
+// writes it into src/sets/ (see vite.config.ts). The work in progress, saved
+// or not, survives a reload.
 
 const LOCAL = import.meta.env.DEV;
 const BUILT = import.meta.glob<unknown>('../sets/*.json', { eager: true, import: 'default' });
 const builtId = (path: string) => path.slice('../sets/'.length, -'.json'.length);
-const STATE_KEY = 'sinkhole-editor-set';
+const STATE_KEY = 'sinkhole-editor';
 
-interface SetDraft extends HoleSet {
+type HoleDraft = Partial<HoleFile>;
+type Source = 'game' | 'browser';
+
+interface SetDraft {
   id: string;
+  name: string;
+  holes: HoleDraft[];
+  // Where it was opened from or last saved to: what DELETE removes.
+  origin: { from: Source; id: string } | null;
+}
+
+interface Kept {
+  set: SetDraft;
+  at: number;
+  status: string;
+  dirty: boolean;
 }
 
 export interface SetsHost {
-  // Every hole that follows the rules, by id, read fresh.
-  holes(): Promise<Map<string, Hole>>;
-  preview(hole: Hole | null): void;
-  edit(id: string): void;
+  // Show this hole on the canvas, to edit.
+  load(hole: HoleDraft): void;
+  // A fresh hole to add.
+  blank(): HoleDraft;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 export function setupSets(host: SetsHost) {
   const el = {
-    load: $<HTMLSelectElement>('set-load'),
-    fresh: $<HTMLButtonElement>('set-new'),
+    open: $<HTMLSelectElement>('open'),
+    fresh: $<HTMLButtonElement>('new'),
+    file: $<HTMLInputElement>('file'),
     id: $<HTMLInputElement>('set-id'),
     name: $<HTMLInputElement>('set-name'),
     list: $('set-holes'),
-    add: $<HTMLSelectElement>('set-add'),
+    add: $<HTMLButtonElement>('add-hole'),
     total: $('set-total'),
+    title: $('hole-title'),
     rules: $('set-rules'),
-    save: $<HTMLButtonElement>('set-save'),
-    copy: $<HTMLButtonElement>('set-copy'),
-    status: $('set-status'),
+    save: $<HTMLButtonElement>('save'),
+    download: $<HTMLButtonElement>('download'),
+    repo: $<HTMLButtonElement>('to-repo'),
+    remove: $<HTMLButtonElement>('delete'),
+    status: $('status'),
   };
 
-  const blank = (): SetDraft => ({ id: 'new-set', name: 'New set', holes: [] });
+  const newSet = (): SetDraft => ({ id: 'new-set', name: 'New set', holes: [host.blank()], origin: null });
   const kept = restore();
-  let draft: SetDraft = kept?.draft ?? blank();
-  let holes = new Map<string, Hole>();
-  let shown = -1; // the row previewed
+  let set = kept?.set ?? newSet();
+  let at = Math.min(kept?.at ?? 0, set.holes.length - 1);
+  let dirty = kept?.dirty ?? false;
+  let repoIds: string[] = [];
 
   function keep() {
     try {
-      localStorage.setItem(STATE_KEY, JSON.stringify({ draft, status: el.status.textContent ?? '' }));
+      const k: Kept = { set, at, status: el.status.textContent ?? '', dirty };
+      localStorage.setItem(STATE_KEY, JSON.stringify(k));
     } catch {
-      // Private mode or storage off: the set just isn't kept.
+      // Private mode or storage off: the work just isn't kept.
     }
   }
 
-  // The set and the status line survive a reload (Vite reloads the page
-  // whenever a set is saved).
-  function restore(): { draft: SetDraft; status: string } | null {
+  function restore(): Kept | null {
     try {
-      const raw = localStorage.getItem(STATE_KEY);
-      return raw ? (JSON.parse(raw) as { draft: SetDraft; status: string }) : null;
+      const k = JSON.parse(localStorage.getItem(STATE_KEY) ?? 'null') as Kept | null;
+      // Whatever's stored there may not be a set being made.
+      return Array.isArray(k?.set?.holes) && k.set.holes.length ? k : null;
     } catch {
       return null;
     }
   }
 
-  const status = (text: string) => {
+  function status(text: string) {
     el.status.textContent = text;
     keep();
-  };
-  const checked = () => parseSet({ name: draft.name, holes: draft.holes }, holes.keys());
+  }
+
+  const file = () => ({ name: set.name, holes: set.holes });
+  const checked = () => parseSet(file());
+
+  // Set-level problems: the file name, the name, how many holes, and which
+  // holes break their rules (the hole's own list says how).
+  function problems(): string[] {
+    const out = validSetId(set.id) ? [] : ['file: lowercase letters, digits and dashes'];
+    const { errors } = checked();
+    out.push(...errors.filter(e => !e.startsWith('hole ')));
+    const bad = set.holes.flatMap((h, i) => (parseHole(h).hole ? [] : [i + 1]));
+    if (bad.length) out.push(`${bad.length === 1 ? 'hole' : 'holes'} ${bad.join(', ')}: fix the rules`);
+    return out;
+  }
 
   function show(i: number) {
-    shown = i;
-    host.preview(holes.get(draft.holes[i] ?? '') ?? null);
+    at = Math.max(0, Math.min(i, set.holes.length - 1));
+    keep();
+    host.load(set.holes[at]!);
     render();
   }
 
   function changed() {
+    dirty = true;
     keep();
-    if (shown >= draft.holes.length) shown = draft.holes.length - 1;
-    show(shown);
+    render();
+  }
+
+  // Start over on another set, once anything unsaved is let go.
+  function replace(next: SetDraft, note: string): boolean {
+    if (dirty && !confirm('Leave this set? Changes not saved or downloaded are lost.')) return false;
+    set = next;
+    dirty = false;
+    show(0);
+    status(note);
+    return true;
   }
 
   function render() {
-    if (document.activeElement !== el.id) el.id.value = draft.id;
-    if (document.activeElement !== el.name) el.name.value = draft.name;
+    if (document.activeElement !== el.id) el.id.value = set.id;
+    if (document.activeElement !== el.name) el.name.value = set.name;
+    el.title.textContent = `HOLE ${at + 1}`;
 
     el.list.replaceChildren(
-      ...draft.holes.map((id, i) => {
-        const hole = holes.get(id);
+      ...set.holes.map((h, i) => {
         const li = document.createElement('li');
-        li.classList.toggle('on', i === shown);
-        li.classList.toggle('bad', !hole);
-        const pick = button(`${i + 1}  ${hole?.name ?? id}`, 'set-hole', () => show(i));
+        li.classList.toggle('on', i === at);
+        li.classList.toggle('bad', !parseHole(h).hole);
+        const pick = button(`${i + 1}  ${h.name || 'Untitled'}`, 'set-hole', () => show(i));
         const par = document.createElement('span');
         par.className = 'set-par';
-        par.textContent = hole ? `PAR ${hole.par}` : '?';
+        par.textContent = `PAR ${h.par ?? '?'}`;
         const move = (by: number) => () => {
           const j = i + by;
-          if (j < 0 || j >= draft.holes.length) return;
-          [draft.holes[i], draft.holes[j]] = [draft.holes[j]!, draft.holes[i]!];
-          shown = j;
+          [set.holes[i], set.holes[j]] = [set.holes[j]!, set.holes[i]!];
+          if (at === i) at = j;
+          else if (at === j) at = i;
           changed();
         };
         const up = button('↑', 'icon', move(-1), 'Move up');
         const down = button('↓', 'icon', move(1), 'Move down');
         up.disabled = i === 0;
-        down.disabled = i === draft.holes.length - 1;
-        const edit = button('✎', 'icon', () => host.edit(id), `Edit ${id}`);
-        edit.disabled = !hole;
-        const drop = button('✕', 'icon', () => {
-          draft.holes.splice(i, 1);
+        down.disabled = i === set.holes.length - 1;
+        const copy = button('⧉', 'icon', () => {
+          set.holes.splice(i + 1, 0, structuredClone(h));
           changed();
-        }, 'Remove');
-        li.append(pick, par, up, down, edit, drop);
+          show(i + 1);
+        }, 'Duplicate');
+        const drop = button('✕', 'icon', () => {
+          if (!confirm(`Delete hole ${i + 1}, ${h.name || 'Untitled'}?`)) return;
+          set.holes.splice(i, 1);
+          changed();
+          show(at > i ? at - 1 : at);
+        }, 'Delete');
+        drop.disabled = set.holes.length === 1;
+        li.append(pick, par, up, down, copy, drop);
         return li;
       }),
     );
 
-    const par = draft.holes.reduce((sum, id) => sum + (holes.get(id)?.par ?? 0), 0);
-    const n = draft.holes.length;
+    const n = set.holes.length;
+    const par = set.holes.reduce((sum, h) => sum + (h.par ?? 0), 0);
     el.total.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${par}`;
+    el.add.disabled = n >= 18;
 
-    const { errors } = checked();
-    const idOk = /^[a-z0-9][a-z0-9-]{0,31}$/.test(draft.id);
-    const problems = [...(idOk ? [] : ['file: lowercase letters, digits and dashes']), ...errors];
+    const list = problems();
     el.rules.replaceChildren(
-      ...(problems.length
-        ? problems.map(p => Object.assign(document.createElement('li'), { textContent: p }))
-        : [Object.assign(document.createElement('li'), { textContent: '✓ Follows the rules', className: 'ok' })]),
+      ...(list.length
+        ? list.map(p => Object.assign(document.createElement('li'), { textContent: p }))
+        : [Object.assign(document.createElement('li'), { textContent: '✓ Ready to save', className: 'ok' })]),
     );
-    el.save.disabled = problems.length > 0;
+    el.save.disabled = el.download.disabled = el.repo.disabled = list.length > 0;
+    const o = set.origin;
+    el.remove.disabled = !o || (o.from === 'game' && (!LOCAL || o.id === DEFAULT_SET));
   }
+
+  // --- Opening ---------------------------------------------------------------
 
   async function listSets() {
-    const ids = LOCAL ? ((await (await fetch('/__sets/')).json()) as string[]) : Object.keys(BUILT).map(builtId).sort();
-    el.load.replaceChildren(new Option('Open a set…', ''), ...ids.map(id => new Option(id, id)));
-  }
-
-  function listHoles() {
-    el.add.replaceChildren(
-      new Option('Add a hole…', ''),
-      ...[...holes].map(([id, h]) => new Option(`${h.name} (${id}) · par ${h.par}`, id)),
+    repoIds = LOCAL ? ((await (await fetch('/__sets/')).json()) as string[]) : Object.keys(BUILT).map(builtId).sort();
+    const mine = Object.keys(browserSets()).sort();
+    const group = (label: string, from: Source, ids: string[]) => {
+      const g = document.createElement('optgroup');
+      g.label = label;
+      g.append(...ids.map(id => new Option(id, `${from}:${id}`)));
+      return g;
+    };
+    el.open.replaceChildren(
+      new Option('Open a set…', ''),
+      group('In the game', 'game', repoIds),
+      ...(mine.length ? [group('In this browser', 'browser', mine)] : []),
+      new Option('From a file…', 'file'),
     );
   }
 
-  el.load.addEventListener('change', async () => {
-    const id = el.load.value;
-    el.load.value = '';
-    if (!id) return;
-    let data: unknown;
-    if (LOCAL) {
-      const res = await fetch(`/__sets/${id}`);
-      if (!res.ok) return status(`Couldn't open ${id}.`);
-      data = await res.json();
-    } else {
-      data = Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
-    }
-    const raw = (data ?? {}) as Partial<HoleSet>;
-    draft = {
+  // Lenient, so a set that breaks the rules can still be opened and fixed.
+  function fromData(id: string, data: unknown, origin: SetDraft['origin']): SetDraft {
+    const raw = (data && typeof data === 'object' ? data : {}) as Partial<Record<keyof HoleSet, unknown>>;
+    const holes = Array.isArray(raw.holes) ? raw.holes.filter((h): h is HoleDraft => !!h && typeof h === 'object') : [];
+    return {
       id,
       name: typeof raw.name === 'string' ? raw.name : id,
-      holes: Array.isArray(raw.holes) ? raw.holes.filter((h): h is string => typeof h === 'string') : [],
+      holes: holes.length ? holes.slice(0, 18) : [host.blank()],
+      origin,
     };
-    shown = 0;
-    changed();
-    status(LOCAL ? `Opened src/sets/${id}.json` : `Opened ${id}.`);
+  }
+
+  el.open.addEventListener('change', async () => {
+    const value = el.open.value;
+    el.open.value = '';
+    if (value === 'file') return el.file.click();
+    const [from, id] = value.split(':') as [Source, string];
+    if (!id) return;
+    let data: unknown;
+    if (from === 'browser') data = browserSets()[id];
+    else if (LOCAL) {
+      const res = await fetch(`/__sets/${id}`);
+      data = res.ok ? await res.json() : undefined;
+    } else data = Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
+    if (data === undefined) return status(`Couldn't open ${id}.`);
+    const where = from === 'browser' ? 'this browser' : LOCAL ? `src/sets/${id}.json` : 'the game';
+    replace(fromData(id, data, { from, id }), `Opened ${id} from ${where}.`);
   });
 
-  el.fresh.addEventListener('click', () => {
-    draft = blank();
-    shown = -1;
-    changed();
-    status('');
+  el.file.addEventListener('change', async () => {
+    const f = el.file.files?.[0];
+    el.file.value = '';
+    if (!f) return;
+    let data: unknown;
+    try {
+      data = JSON.parse(await f.text());
+    } catch {
+      return status(`${f.name} isn't a set file.`);
+    }
+    const id = f.name.replace(/\.json$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+/, '').slice(0, 32) || 'new-set';
+    replace(fromData(id, data, null), `Opened ${f.name}. SAVE keeps it in this browser.`);
   });
+
+  el.fresh.addEventListener('click', () => replace(newSet(), ''));
+
+  // --- Editing -----------------------------------------------------------------
 
   el.id.addEventListener('input', () => {
-    draft.id = el.id.value.trim();
-    keep();
-    render();
-  });
-  el.name.addEventListener('input', () => {
-    draft.name = el.name.value;
-    keep();
-    render();
-  });
-
-  el.add.addEventListener('change', () => {
-    const id = el.add.value;
-    el.add.value = '';
-    if (!id) return;
-    draft.holes.push(id);
-    shown = draft.holes.length - 1;
+    set.id = el.id.value.trim().toLowerCase();
     changed();
   });
+  el.name.addEventListener('input', () => {
+    set.name = el.name.value;
+    changed();
+  });
+  el.add.addEventListener('click', () => {
+    set.holes.push(host.blank());
+    changed();
+    show(set.holes.length - 1);
+  });
 
-  el.save.addEventListener('click', async () => {
-    const { set } = checked();
-    if (!set) return;
-    if (!LOCAL) return download(set);
-    const res = await fetch(`/__sets/${draft.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(set),
-    });
-    const body = (await res.json()) as { saved?: string; errors?: string[] };
-    if (!res.ok) return status(`Not saved: ${(body.errors ?? [String(res.status)]).join('; ')}`);
-    status(`Saved to ${body.saved}. The lobby lists it from there.`);
+  // --- Saving ------------------------------------------------------------------
+
+  const same = (from: Source) => set.origin?.from === from && set.origin.id === set.id;
+
+  el.save.addEventListener('click', () => {
+    const { set: done } = checked();
+    if (!done) return;
+    if (!same('browser') && set.id in browserSets() && !confirm(`Replace ${set.id}, already saved in this browser?`)) return;
+    if (!saveBrowserSet(set.id, done)) return status('Not saved: this browser has storage off or full.');
+    set.origin = { from: 'browser', id: set.id };
+    dirty = false;
+    status(`Saved in this browser as ${set.id}. PLAY SOLO lists it.`);
+    render();
     void listSets();
   });
 
-  // On the site: the set as a file, to put in src/sets/.
-  function download(set: HoleSet) {
+  el.download.addEventListener('click', () => {
+    const { set: done } = checked();
+    if (!done) return;
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([setToJson(set)], { type: 'application/json' }));
-    link.download = `${draft.id}.json`;
+    link.href = URL.createObjectURL(new Blob([setToJson(done)], { type: 'application/json' }));
+    link.download = `${set.id}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
-    status(`Downloaded ${draft.id}.json. It goes in src/sets/ to be part of the game.`);
-  }
-
-  el.copy.addEventListener('click', async () => {
-    const { set } = checked();
-    await navigator.clipboard.writeText(set ? setToJson(set) : JSON.stringify({ name: draft.name, holes: draft.holes }, null, 2));
-    status('Copied.');
+    dirty = false;
+    status(`Downloaded ${set.id}.json. In src/sets/ it's part of the game.`);
   });
 
-  if (!LOCAL) el.save.textContent = 'DOWNLOAD';
+  el.repo.hidden = !LOCAL;
+  el.repo.addEventListener('click', async () => {
+    const { set: done } = checked();
+    if (!done) return;
+    if (!same('game') && repoIds.includes(set.id) && !confirm(`Replace src/sets/${set.id}.json?`)) return;
+    const res = await fetch(`/__sets/${set.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: setToJson(done),
+    });
+    const body = (await res.json()) as { saved?: string; errors?: string[] };
+    if (!res.ok) return status(`Not saved: ${(body.errors ?? [String(res.status)]).join('; ')}`);
+    set.origin = { from: 'game', id: set.id };
+    dirty = false;
+    status(`Saved to ${body.saved}. The game and the tests pick it up from there.`);
+    render();
+    void listSets();
+  });
+
+  el.remove.addEventListener('click', async () => {
+    const o = set.origin;
+    if (!o) return;
+    const where = o.from === 'browser' ? 'this browser' : `the repo (src/sets/${o.id}.json)`;
+    if (!confirm(`Delete ${o.id} from ${where}? It stays open here until you start another.`)) return;
+    if (o.from === 'browser') {
+      if (!deleteBrowserSet(o.id)) return status('Not deleted: this browser has storage off.');
+    } else {
+      const res = await fetch(`/__sets/${o.id}`, { method: 'DELETE' });
+      const body = (await res.json()) as { errors?: string[] };
+      if (!res.ok) return status(`Not deleted: ${(body.errors ?? [String(res.status)]).join('; ')}`);
+    }
+    set.origin = null;
+    dirty = true;
+    status(`Deleted ${o.id} from ${where}.`);
+    render();
+    void listSets();
+  });
+
   el.status.textContent = kept?.status ?? '';
+  void listSets();
+  // Vite reloads the page when a set file changes; the work carries on.
+  show(at);
 
   return {
-    // Called when the tab opens: the holes may have changed since.
-    async open() {
-      holes = await host.holes();
-      listHoles();
-      await listSets();
-      show(shown < 0 && draft.holes.length ? 0 : shown);
+    // The hole on the canvas changed.
+    update(hole: HoleDraft) {
+      // Picking something calls this too; only a real change needs saving.
+      if (JSON.stringify(hole) !== JSON.stringify(set.holes[at])) dirty = true;
+      set.holes[at] = hole;
+      keep();
+      render();
     },
+    status,
   };
 }
 
