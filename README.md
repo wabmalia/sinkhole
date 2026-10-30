@@ -22,6 +22,20 @@ the tee mat. The aim sways a couple of degrees either side, faster on harder
 shots, and SHOOT (the button by your ball, or space) fires wherever it points
 at that moment.
 
+Rooms play a set of holes in a row. The host picks the set in the lobby; the
+podium button in game shows the scorecard, and after each hole everyone sees
+the results and the card so far until the host goes on. Lowest total wins.
+Whoever did best on a hole plays first on the next one, and anyone offline
+when a hole starts begins it picked up. PLAY SOLO plays a set alone, with no
+connection at all; on the dev server `?solo=<set id>` jumps straight in.
+
+## Holes and sets
+
+Holes are JSON files in `src/holes/`, sets (a name and hole ids in order) in
+`src/sets/`; both are checked by the tests. The editor at `/editor/` draws
+holes and puts them into sets (its HOLES and SETS tabs). On the dev server it
+saves into those folders; on the site it downloads the file instead.
+
 ## Tuning
 
 Every number lives in `src/config.ts`: ball physics, the cup, hole elements,
