@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { straight } from '../holes/straight';
-import { wallsOf } from '../holes/types';
+import { courseOf, holeOf } from '../holes';
 import { canPlace, createGame, current, EngineError, forfeit, play, teeSpot } from './game';
 import { settle, shotVelocity, type Ball, type Course } from './physics';
 import { meterAt, meterCycle, perfectWindow, resolveShot } from './shot';
 
 const UP = -Math.PI / 2;
-const course: Course = { walls: wallsOf(straight), cup: straight.cup };
+const straight = holeOf('straight');
+const course: Course = courseOf('straight');
 const ball = (x: number, y: number, vx = 0, vy = 0, id = 0): Ball => ({ id, pos: { x, y }, vel: { x: vx, y: vy }, sunk: false });
 
 describe('meter', () => {

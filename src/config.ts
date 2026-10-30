@@ -23,6 +23,13 @@ export const CONFIG = {
     captureSpeed: 330,    // at or below this, a ball over the cup drops in
   },
 
+  // Hole elements. Limits on what the editor (and a hole file) may set are in
+  // holes/format.ts.
+  features: {
+    portalRadius: 14,     // a ball whose centre gets this close goes through
+    coreRadius: 10,       // a black hole swallows a ball this close to its centre
+  },
+
   aim: {
     dragFull: 170,        // screen px of pull-back for a 100% shot
     minPower: 0.05,
@@ -72,7 +79,13 @@ export const COLORS = {
   hole: 0x05060f,
   fg: 0xeef0fa,
   muted: 0xc0c4dc,
+  ramp: 0x7fb2ff,
+  river: 0x3df2c0,
+  blackHole: 0xa07cff,
+  whiteHole: 0xeef0fa,
 } as const;
+
+export const PORTAL_TINT = { pink: 0xff5ad1, lime: 0x9dff5c, orange: 0xff8a3d, red: 0xff4f6d } as const;
 
 // One per seat, up to 8. Cyan is left to the walls.
 export const PLAYER_COLORS = [

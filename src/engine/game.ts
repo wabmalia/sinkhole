@@ -72,6 +72,8 @@ export function launch(g: Game, shot: Shot, at?: Vec) {
   const p = current(g);
   if (!p.ball) return;
   if (at && canPlace(g)) p.ball.pos = teeSpot(g, at);
+  // A ball that ends up in a river goes back to where it was now.
+  for (const b of balls(g)) b.from = { ...b.pos };
   p.ball.vel = shotVelocity(shot.angle, clamp(shot.power, 0, 1));
 }
 
@@ -84,8 +86,11 @@ export function play(g: Game, playerId: string, shot: Shot, at?: Vec): { game: G
   const next = structuredClone(g);
   launch(next, shot, at);
   const events = settle(courseOf(next.holeId), balls(next));
+  for (const b of balls(next)) b.vel = { x: 0, y: 0 };
   const p = current(next);
-  p.strokes++;
+  // A stroke, plus one each time the shooter's ball went back from a river or
+  // a black hole. Balls knocked in by someone else go back for free.
+  p.strokes += 1 + events.filter(e => e.type === 'reset' && e.ball === p.ball?.id).length;
   p.teedOff = true;
   next.shots++;
   endShot(next);

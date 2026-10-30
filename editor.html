@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sinkhole hole editor</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
+</head>
+<body>
+  <main class="stage" id="stage">
+    <canvas id="canvas"></canvas>
+  </main>
+
+  <aside class="panel">
+    <h1>SINKHOLE <span>HOLE EDITOR</span></h1>
+
+    <div class="field-row">
+      <select id="load" aria-label="Open a hole"></select>
+      <button type="button" id="new">NEW</button>
+    </div>
+
+    <label>FILE <input id="id" spellcheck="false" autocomplete="off" placeholder="my-hole"></label>
+    <label>NAME <input id="name" maxlength="24" spellcheck="false" autocomplete="off"></label>
+    <label>PAR <input id="par" type="number" min="2" max="6" step="1"></label>
+
+    <div class="tools" id="tools">
+      <button type="button" data-tool="move">MOVE <kbd>V</kbd></button>
+      <button type="button" data-tool="outline">OUTLINE <kbd>O</kbd></button>
+      <button type="button" data-tool="block">BLOCK <kbd>B</kbd></button>
+      <button type="button" data-tool="tee">TEE <kbd>T</kbd></button>
+      <button type="button" data-tool="cup">CUP <kbd>C</kbd></button>
+      <button type="button" data-tool="ramp">RAMP <kbd>R</kbd></button>
+      <button type="button" data-tool="river">RIVER <kbd>W</kbd></button>
+      <button type="button" data-tool="black">BLACK HOLE <kbd>H</kbd></button>
+      <button type="button" data-tool="white">WHITE HOLE <kbd>J</kbd></button>
+      <button type="button" data-tool="portal">PORTALS <kbd>P</kbd></button>
+      <button type="button" data-tool="test" class="test">TEST <kbd>S</kbd></button>
+    </div>
+    <p class="help" id="help"></p>
+
+    <div class="props" id="props" hidden></div>
+
+    <ul class="rules" id="rules"></ul>
+
+    <div class="field-row">
+      <button type="button" class="primary" id="save">SAVE</button>
+      <button type="button" id="play">PLAY</button>
+      <button type="button" id="copy">COPY JSON</button>
+    </div>
+    <p class="status" id="status" role="status"></p>
+
+    <p class="keys">Snaps to the grid; hold <kbd>Shift</kbd> to place freely.
+      <kbd>⌘Z</kbd> / <kbd>Ctrl Z</kbd> undoes. The dashed box is the size limit.</p>
+  </aside>
+
+  <script type="module" src="/src/editor/editor.ts"></script>
+</body>
+</html>

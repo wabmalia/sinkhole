@@ -30,6 +30,26 @@ export function drawCourse(g: Phaser.GameObjects.Graphics, hole: Hole) {
     for (const [x0, x1] of spans(hole.outline, y, 'y')) g.lineBetween(x0, y, x1, y);
   }
 
+  // Rivers and ramps sit on the floor; their moving parts are drawn by the
+  // scene each frame.
+  for (const river of hole.rivers) {
+    g.fillStyle(COLORS.river, 0.14);
+    g.fillPoints(pts(river), true);
+    g.lineStyle(1.5, COLORS.river, 0.7);
+    g.strokePoints(pts(river), true, true);
+  }
+  for (const ramp of hole.ramps) {
+    g.fillStyle(COLORS.ramp, 0.06);
+    g.fillPoints(pts(ramp.area), true);
+    g.lineStyle(1, COLORS.ramp, 0.35);
+    g.strokePoints(pts(ramp.area), true, true);
+  }
+  // How far each well reaches.
+  for (const w of hole.wells) {
+    g.lineStyle(1, w.kind === 'black' ? COLORS.blackHole : COLORS.whiteHole, 0.25);
+    g.strokeCircle(w.at.x, w.at.y, w.radius);
+  }
+
   for (const block of hole.blocks) {
     g.fillStyle(COLORS.bg, 1);
     g.fillPoints(pts(block), true);

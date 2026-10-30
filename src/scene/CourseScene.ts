@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
-import { COLORS, CONFIG } from '../config';
+import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { balls, canPlace, current, launch, teeSpot, type Game } from '../engine/game';
 import { atRest, step, type PhysicsEvent } from '../engine/physics';
 import { meterAt, resolveShot, type Shot } from '../engine/shot';
 import { clamp, dist, fromAngle, lerp, type Vec } from '../engine/vec';
-import { courseOf, holeOf } from '../holes';
+import { courseOf, DEFAULT_HOLE, holeOf } from '../holes';
+import { inside } from '../holes/format';
 import { bounds } from '../holes/types';
 import type { Aim } from '../net/protocol';
 import { session } from '../net/session';
@@ -49,7 +50,11 @@ export class CourseScene extends Phaser.Scene {
   private meter: { since: number } | null = null;
   private drag: Drag = null;
   private accumulator = 0;
-  private trails = new Map<number, Trail>();
+  private trails = new Map<number, Trail>(); // by ball id; broken-off pieces get negative keys
+  private trailPieces = 0;
+  private rollSince = 0;
+  // Where the ramp chevrons and river pixels go, worked out once per hole.
+  private marks: { ramps: Vec[][]; rivers: Vec[] } = { ramps: [], rivers: [] };
   private rings: Ring[] = [];
   private tags = new Map<string, Phaser.GameObjects.Text>(); // name over each ball
   private keys!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -62,7 +67,7 @@ export class CourseScene extends Phaser.Scene {
   create() {
     this.course = this.add.graphics();
     this.fx = this.add.graphics();
-    this.drawHole('straight');
+    this.drawHole(DEFAULT_HOLE);
 
     if (CONFIG.look.bloom) {
       Phaser.Actions.AddEffectBloom(this.cameras.main, {
@@ -112,7 +117,17 @@ export class CourseScene extends Phaser.Scene {
     if (id === this.drawnHole) return;
     this.drawnHole = id;
     this.course.clear();
-    drawCourse(this.course, holeOf(id));
+    const hole = holeOf(id);
+    drawCourse(this.course, hole);
+    const grid = (area: Vec[], gap: number) => {
+      const b = bounds(area);
+      const out: Vec[] = [];
+      for (let x = b.x + gap / 2; x < b.x + b.w; x += gap) {
+        for (let y = b.y + gap / 2; y < b.y + b.h; y += gap) if (inside({ x, y }, area)) out.push({ x, y });
+      }
+      return out;
+    };
+    this.marks = { ramps: hole.ramps.map(r => grid(r.area, 30)), rivers: hole.rivers.flatMap(r => grid(r, 12)) };
     this.fit();
   }
 
@@ -242,6 +257,7 @@ export class CourseScene extends Phaser.Scene {
     launch(sim, shot, at);
     this.shown = sim;
     this.rolling = true;
+    this.rollSince = this.time.now;
     this.accumulator = 0;
     this.remoteAim = null;
     const p = current(sim);
@@ -338,7 +354,8 @@ export class CourseScene extends Phaser.Scene {
       const last = t.points[t.points.length - 1]!;
       if (dist(last, b.pos) > 3) t.points.push({ ...b.pos });
     }
-    if (atRest(live)) {
+    // The host gives up on a shot after 30 s as well (settle's limit).
+    if (atRest(live) || time - this.rollSince > 30_000) {
       this.rolling = false;
       for (const t of this.trails.values()) {
         if (!t.done) { t.done = true; t.laidAt = time; }
@@ -364,7 +381,28 @@ export class CourseScene extends Phaser.Scene {
       const strokes = p.strokes + (p === current(g) ? 1 : 0);
       const name = p.id === session.me ? '' : `${p.name} `;
       ui.flash(strokes === 1 ? `${name}ACE!` : `${name}SUNK`, p.color);
+    } else if (e.type === 'portal') {
+      const tint = PORTAL_TINT[e.color];
+      this.rings.push({ at: e.from, color: tint, born: time, life: 450, from: 6, to: 26 });
+      this.rings.push({ at: e.to, color: tint, born: time, life: 450, from: 26, to: 6 });
+      const t = this.breakTrail(e.ball, time);
+      if (t) this.trails.set(e.ball, { points: [{ ...e.to }], color: t.color, laidAt: 0, done: false });
+    } else if (e.type === 'reset') {
+      const color = e.cause === 'river' ? COLORS.river : COLORS.blackHole;
+      this.rings.push({ at: e.at, color, born: time, life: 600, from: 4, to: 30 });
+      this.breakTrail(e.ball, time);
+      const p = g.players[e.ball]!;
+      if (p === current(g)) ui.flash(e.cause === 'river' ? 'IN THE RIVER +1' : 'SWALLOWED +1', color);
     }
+  }
+
+  // End a ball's trail where it is (it jumped elsewhere) and let it fade.
+  private breakTrail(ball: number, time: number): Trail | undefined {
+    const t = this.trails.get(ball);
+    if (!t) return undefined;
+    this.trails.delete(ball);
+    this.trails.set(-++this.trailPieces, { ...t, done: true, laidAt: time });
+    return t;
   }
 
   // --- Drawing (everything that moves) -------------------------------------
@@ -380,6 +418,7 @@ export class CourseScene extends Phaser.Scene {
     fx.lineStyle(1.5, COLORS.cup, 0.5 * (1 - beat));
     fx.strokeCircle(cup.x, cup.y, CONFIG.cup.radius + 2 + beat * 14);
 
+    this.drawElements(time);
     for (const t of this.trails.values()) this.drawTrail(t, time);
 
     this.rings = this.rings.filter(r => time < r.born + r.life);
@@ -432,6 +471,70 @@ export class CourseScene extends Phaser.Scene {
       if (live.has(id)) continue;
       tag.destroy();
       this.tags.delete(id);
+    }
+  }
+
+  // The moving parts of ramps, rivers, wells and portals.
+  private drawElements(time: number) {
+    const fx = this.fx;
+    const hole = holeOf(this.drawnHole);
+
+    // Chevrons drift downhill, faster on steeper ramps.
+    hole.ramps.forEach((r, i) => {
+      const a = (r.angle * Math.PI) / 180;
+      const dir = fromAngle(a);
+      const shift = ((time / 1000) * (20 + Math.min(r.strength, 2000) / 20)) % 30;
+      const wing = fromAngle(a + Math.PI * 0.8, 6);
+      const wing2 = fromAngle(a - Math.PI * 0.8, 6);
+      fx.lineStyle(1.5, COLORS.ramp, 0.25 + Math.min(0.5, r.strength / 4000));
+      for (const m of this.marks.ramps[i] ?? []) {
+        const at = { x: m.x + dir.x * (shift - 15), y: m.y + dir.y * (shift - 15) };
+        if (!inside(at, r.area)) continue;
+        fx.lineBetween(at.x, at.y, at.x + wing.x, at.y + wing.y);
+        fx.lineBetween(at.x, at.y, at.x + wing2.x, at.y + wing2.y);
+      }
+    });
+
+    // The river flickers like a screen.
+    for (const [k, m] of this.marks.rivers.entries()) {
+      const glow = 0.5 + 0.5 * Math.sin(time / 260 + k * 2.39);
+      fx.fillStyle(COLORS.river, 0.12 + 0.4 * glow * glow);
+      fx.fillRect(m.x - 1.5, m.y - 1.5, 3, 3);
+    }
+
+    // Rings fall into a black hole and spread out of a white one.
+    for (const w of hole.wells) {
+      const black = w.kind === 'black';
+      const color = black ? COLORS.blackHole : COLORS.whiteHole;
+      for (let k = 0; k < 3; k++) {
+        const t = (time / 2200 + k / 3) % 1;
+        const f = black ? 1 - t : t;
+        fx.lineStyle(1.5, color, 0.45 * Math.sin(Math.PI * t));
+        fx.strokeCircle(w.at.x, w.at.y, CONFIG.features.coreRadius + f * (w.radius - CONFIG.features.coreRadius));
+      }
+      fx.fillStyle(black ? COLORS.hole : COLORS.whiteHole, black ? 1 : 0.5);
+      fx.fillCircle(w.at.x, w.at.y, CONFIG.features.coreRadius);
+      fx.lineStyle(2, color, 0.9);
+      fx.strokeCircle(w.at.x, w.at.y, CONFIG.features.coreRadius);
+    }
+
+    // Portals: a glowing disc with two arcs spinning round it.
+    const pr = CONFIG.features.portalRadius;
+    for (const p of hole.portals) {
+      const tint = PORTAL_TINT[p.color];
+      for (const [k, end] of [p.a, p.b].entries()) {
+        const spin = (time / 500) * (k ? -1 : 1);
+        fx.fillStyle(tint, 0.18);
+        fx.fillCircle(end.x, end.y, pr);
+        fx.lineStyle(2, tint, 0.95);
+        for (const off of [0, Math.PI]) {
+          fx.beginPath();
+          fx.arc(end.x, end.y, pr, spin + off, spin + off + Math.PI * 0.6);
+          fx.strokePath();
+        }
+        fx.lineStyle(1, tint, 0.5);
+        fx.strokeCircle(end.x, end.y, pr * 0.55);
+      }
     }
   }
 
