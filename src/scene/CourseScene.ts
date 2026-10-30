@@ -53,7 +53,7 @@ export class CourseScene extends Phaser.Scene {
   private swaySince = 0;
   private remoteAimAt = 0;
   private aimDirty = false;
-  private introSeen = false;            // how to shoot, once per hole
+  private introSeen = false;            // how to shoot, on a set's first hole
   private powerTag!: Phaser.GameObjects.Text; // the % by the aim line
   private drag: Drag = null;
   private accumulator = 0;
@@ -182,7 +182,8 @@ export class CourseScene extends Phaser.Scene {
   }
 
   private reset() {
-    this.introSeen = false;
+    // The how-to card shows on the first hole of a set only.
+    this.introSeen = (session.room?.match?.index ?? 0) > 0;
     this.trails.clear();
     this.rings = [];
     this.drag = null;
