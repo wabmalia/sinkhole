@@ -44,6 +44,7 @@ type Zone = 'blocks' | 'ramps' | 'rivers';
 // Something on the hole that can be picked, dragged or deleted.
 type Target =
   | { kind: 'vertex'; poly: Vec[]; i: number }
+  | { kind: 'edge'; poly: Vec[]; i: number }     // the side from corner i to the next
   | { kind: 'cup' }
   | { kind: 'tee' }
   | { kind: 'tee-size' }
@@ -67,7 +68,7 @@ const HIT = matchMedia('(pointer: coarse)').matches ? 18 : 10;
 const ARROW = 40;         // length of a ramp's direction arrow, hole units
 
 const HELP: Record<Tool, string> = {
-  move: 'Drag corners, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river or corner for its settings, beside it. Double-tap a wall to add a corner.',
+  move: 'Drag corners, sides, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river or corner for its settings, beside it. Double-tap a wall to add a corner.',
   outline: 'Tap the corners of the outer wall, then the first corner again or DONE to close it: it replaces the old outline.',
   block: 'Tap the corners of a solid block, then the first corner again or DONE.',
   tee: 'Drag out the tee mat, where players place their first shot.',
@@ -280,6 +281,10 @@ function hitAt(w: Vec): Target | null {
   if (draft.cup && dist(draft.cup, w) <= CONFIG.cup.radius + HIT / view.scale) return { kind: 'cup' };
   const t = draft.tee;
   if (t && near({ x: t.x + t.w, y: t.y + t.h }, w)) return { kind: 'tee-size' };
+  for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
+    const i = poly.findIndex((a, k) => near(closestOnSegment(w, a, poly[(k + 1) % poly.length]!), w));
+    if (i >= 0) return { kind: 'edge', poly, i };
+  }
   if (t && w.x >= t.x && w.x <= t.x + t.w && w.y >= t.y && w.y <= t.y + t.h) return { kind: 'tee' };
   for (const zone of ['blocks', 'ramps', 'rivers'] as const) {
     const list = zone === 'ramps' ? draft.ramps.map(r => r.area) : draft[zone];
@@ -296,6 +301,15 @@ function selectionOf(t: Target): Selection {
   if (t.kind === 'well' || t.kind === 'well-size') return { kind: 'well', i: t.i };
   if (t.kind === 'portal') return { kind: 'portal', i: t.i };
   if (t.kind === 'vertex') return { kind: 'corner', poly: t.poly, i: t.i };
+  if (t.kind === 'edge') {
+    // A side picks its shape, as a tap inside it would.
+    const ramp = draft.ramps.findIndex(r => r.area === t.poly);
+    if (ramp >= 0) return { kind: 'ramp', i: ramp };
+    for (const zone of ['blocks', 'rivers'] as const) {
+      const i = draft[zone].indexOf(t.poly);
+      if (i >= 0) return { kind: 'zone', zone, i };
+    }
+  }
   return null;
 }
 
@@ -324,7 +338,8 @@ el.canvas.addEventListener('pointerdown', e => {
     renderPanel();
     if (!target) return draw();
     remember();
-    const zone = target.kind === 'zone' ? zoneOf(target.zone, target.i) ?? [] : [];
+    // A shape, or the shape a side belongs to, as it was when the drag began.
+    const zone = target.kind === 'zone' ? zoneOf(target.zone, target.i) ?? [] : target.kind === 'edge' ? target.poly : [];
     drag = { target, from: p, at: { x: e.offsetX, y: e.offsetY }, moved: false, tee: draft.tee && { ...draft.tee }, zone: zone.map(v => ({ ...v })) };
   } else if (tool === 'outline' || tool === 'block' || tool === 'ramp' || tool === 'river') {
     if (drawing.length >= 3 && near(drawing[0]!, raw)) return closeShape();
@@ -401,6 +416,12 @@ function moveTarget(t: Target, p: Vec, raw: Vec) {
     case 'vertex':
       t.poly[t.i] = p;
       break;
+    case 'edge': {
+      // Both its corners, by the same amount.
+      const j = (t.i + 1) % t.poly.length;
+      for (const k of [t.i, j]) t.poly[k] = { x: drag.zone[k]!.x + d.x, y: drag.zone[k]!.y + d.y };
+      break;
+    }
     case 'cup':
       draft.cup = p;
       break;
@@ -1122,6 +1143,8 @@ function paint() {
 
   // Handles to drag.
   if (tool === 'move') {
+    // The side under the pointer, ready to drag.
+    if (hover?.kind === 'edge') line(hover.poly[hover.i]!, hover.poly[(hover.i + 1) % hover.poly.length]!, C.cup, 3 * px);
     for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
       poly.forEach((p, i) => {
         const on = hover?.kind === 'vertex' && hover.poly === poly && hover.i === i;
