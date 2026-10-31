@@ -52,27 +52,32 @@ type Target =
   | { kind: 'well'; i: number }
   | { kind: 'well-size'; i: number }
   | { kind: 'portal'; i: number; end: 'a' | 'b' };
-// What the properties panel shows.
-type Selection = { kind: 'ramp' | 'well' | 'portal'; i: number } | null;
+// What the settings card next to it shows.
+type Selection =
+  | { kind: 'ramp' | 'well' | 'portal'; i: number }
+  | { kind: 'zone'; zone: 'blocks' | 'rivers'; i: number }
+  | { kind: 'corner'; poly: Vec[]; i: number }
+  | null;
 
 const SNAP = 15;          // half the course grid
 const GRID = 30;
-const MARGIN = 40;        // room around the frame, in hole units
-const HIT = 10;           // how close the pointer must be, in screen pixels
+const MARGIN = 20;        // room around the frame, in hole units
+// How close the pointer must be, in screen pixels: more for a finger.
+const HIT = matchMedia('(pointer: coarse)').matches ? 18 : 10;
 const ARROW = 40;         // length of a ramp's direction arrow, hole units
 
 const HELP: Record<Tool, string> = {
-  move: 'Drag corners, the tee (its corner handle resizes it), the cup or any element. Click a ramp, well or portal to edit it below. Double-click a wall to add a corner. Right-click a corner or an element to delete it.',
-  outline: 'Click the corners of the outer wall. Click the first corner again, or press Enter, to close it: it replaces the old outline. Esc cancels.',
-  block: 'Click the corners of a solid block. Close it on the first corner or with Enter.',
+  move: 'Drag corners, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river or corner for its settings, beside it. Double-tap a wall to add a corner.',
+  outline: 'Tap the corners of the outer wall, then the first corner again or DONE to close it: it replaces the old outline.',
+  block: 'Tap the corners of a solid block, then the first corner again or DONE.',
   tee: 'Drag out the tee mat, where players place their first shot.',
-  cup: 'Click where the cup goes.',
-  ramp: 'Click the corners of a ramp, then close it. Drag its arrow to point downhill; set how steep it is below.',
-  river: 'Click the corners of a river, then close it. It slows the ball hard: a strong shot can get across a narrow one, but a ball that stops in it goes back where the shot started, +1 stroke.',
-  black: 'Click to place a black hole. It pulls balls in and swallows them at the core, like a river. Drag its ring to change its reach.',
-  white: 'Click to place a white hole. It pushes balls away. Drag its ring to change its reach.',
-  portal: 'Click twice: where the ball goes in, and where it comes out. Each colour is one pair.',
-  test: 'Drag anywhere the way you want to shoot, further for harder; let go to shoot. No sway: every shot goes exactly as aimed. Drag the ball to try a shot from anywhere. Esc puts it back on the tee.',
+  cup: 'Tap where the cup goes.',
+  ramp: 'Tap the corners of a ramp, then close it. Drag its arrow to point downhill; tap it to set how steep it is.',
+  river: 'Tap the corners of a river, then close it. It slows the ball, harder the faster it goes: a strong shot gets across a narrow one, but a ball that stops in it goes back where the shot started, +1 stroke.',
+  black: 'Tap to place a black hole. It pulls balls in and swallows them at the core, like a river. Drag its ring to change its reach.',
+  white: 'Tap to place a white hole. It pushes balls away. Drag its ring to change its reach.',
+  portal: 'Tap twice: where the ball goes in, and where it comes out. Each colour is one pair.',
+  test: 'Play the hole with the game\'s physics. Drag the way you want to shoot, further for harder, and let go. No sway: every shot goes exactly as aimed. Drag the ball to try a shot from anywhere; PROBE shows which shots can sink from there.',
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -82,9 +87,33 @@ const el = {
   name: $<HTMLInputElement>('name'),
   par: $<HTMLInputElement>('par'),
   tools: $('tools'),
-  help: $('help'),
+  toolsRight: $('tools-right'),
+  testTools: $('test-tools'),
+  testGroup: $('test-group'),
+  testStrokes: $('test-strokes'),
+  testSinks: $('test-sinks'),
+  testTee: $<HTMLButtonElement>('test-tee'),
+  testProbe: $<HTMLButtonElement>('test-probe'),
+  topbar: $('topbar'),
   props: $('props'),
   rules: $('rules'),
+  setRules: $('set-rules'),
+  state: $<HTMLButtonElement>('state'),
+  problems: $('problems'),
+  menu: $<HTMLButtonElement>('menu'),
+  menuClose: $<HTMLButtonElement>('menu-close'),
+  drawer: $('drawer'),
+  backdrop: $('backdrop'),
+  undo: $<HTMLButtonElement>('undo'),
+  infoOpen: $<HTMLButtonElement>('info-open'),
+  info: $<HTMLDialogElement>('info'),
+  infoClose: $<HTMLButtonElement>('info-close'),
+  infoTools: $('info-tools'),
+  shapeBar: $('shape-bar'),
+  shapeHint: $('shape-hint'),
+  shapeDone: $<HTMLButtonElement>('shape-done'),
+  shapeCancel: $<HTMLButtonElement>('shape-cancel'),
+  toast: $('toast'),
 };
 const ctx = el.canvas.getContext('2d')!;
 const pen = canvasPen(ctx);
@@ -109,7 +138,8 @@ let pointer: Vec | null = null;    // under the mouse, in hole units, snapped
 let hover: Target | null = null;
 let selected: Selection = null;
 let free = false;                  // Shift: no snapping
-let drag: { target: Target; from: Vec; tee: Rect | null; zone: Vec[]; } | null = null;
+// `at` is where it started on screen: nothing moves until the pointer has.
+let drag: { target: Target; from: Vec; at: Vec; moved: boolean; tee: Rect | null; zone: Vec[]; } | null = null;
 let teeFrom: Vec | null = null;
 const history: string[] = [];
 const view = { scale: 1, ox: 0, oy: 0 };
@@ -262,34 +292,40 @@ function hitAt(w: Vec): Target | null {
 // Which element a target belongs to, for the properties panel.
 function selectionOf(t: Target): Selection {
   if (t.kind === 'ramp-dir' || (t.kind === 'zone' && t.zone === 'ramps')) return { kind: 'ramp', i: t.i };
+  if (t.kind === 'zone') return { kind: 'zone', zone: t.zone as 'blocks' | 'rivers', i: t.i };
   if (t.kind === 'well' || t.kind === 'well-size') return { kind: 'well', i: t.i };
   if (t.kind === 'portal') return { kind: 'portal', i: t.i };
-  if (t.kind === 'vertex') {
-    const r = draft.ramps.findIndex(ramp => ramp.area === t.poly);
-    if (r >= 0) return { kind: 'ramp', i: r };
-  }
+  if (t.kind === 'vertex') return { kind: 'corner', poly: t.poly, i: t.i };
   return null;
 }
 
 // --- Pointer ----------------------------------------------------------------
 
+let lastTap: { at: number; x: number; y: number } | null = null;
+
 el.canvas.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   // Leave the text fields, so the tool keys work again.
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  el.problems.hidden = true;
   el.canvas.setPointerCapture(e.pointerId);
   free = e.shiftKey;
   const raw = toWorld(e.offsetX, e.offsetY);
   const p = place(raw);
   if (tool === 'test') return testDown(e.offsetX, e.offsetY, raw);
   if (tool === 'move') {
+    // A double tap (or click) on a wall or an edge adds a corner there.
+    const now = performance.now();
+    const twice = !!lastTap && now - lastTap.at < 350 && Math.hypot(e.offsetX - lastTap.x, e.offsetY - lastTap.y) < 20;
+    lastTap = twice ? null : { at: now, x: e.offsetX, y: e.offsetY };
+    if (twice && addCorner(raw)) return;
     const target = hitAt(raw);
     selected = target ? selectionOf(target) : null;
     renderPanel();
     if (!target) return draw();
     remember();
     const zone = target.kind === 'zone' ? zoneOf(target.zone, target.i) ?? [] : [];
-    drag = { target, from: p, tee: draft.tee && { ...draft.tee }, zone: zone.map(v => ({ ...v })) };
+    drag = { target, from: p, at: { x: e.offsetX, y: e.offsetY }, moved: false, tee: draft.tee && { ...draft.tee }, zone: zone.map(v => ({ ...v })) };
   } else if (tool === 'outline' || tool === 'block' || tool === 'ramp' || tool === 'river') {
     if (drawing.length >= 3 && near(drawing[0]!, raw)) return closeShape();
     if (!drawing.some(q => q.x === p.x && q.y === p.y)) drawing.push(p);
@@ -336,6 +372,9 @@ el.canvas.addEventListener('pointermove', e => {
   pointer = p;
   if (tool === 'test') return testMove(e.offsetX, e.offsetY, raw);
   if (drag) {
+    // A tap, finger wobble and all, only picks.
+    drag.moved ||= Math.hypot(e.offsetX - drag.at.x, e.offsetY - drag.at.y) > 5;
+    if (!drag.moved) return;
     moveTarget(drag.target, p, raw);
     changed();
     return;
@@ -412,22 +451,23 @@ el.canvas.addEventListener('pointerleave', () => {
   draw();
 });
 
-// Double-click a wall or an edge to add a corner there.
-el.canvas.addEventListener('dblclick', e => {
-  if (tool !== 'move') return;
-  const w = toWorld(e.offsetX, e.offsetY);
+// A corner on whichever wall or edge is under the pointer, if any.
+function addCorner(w: Vec): boolean {
   for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
     for (let i = 0; i < poly.length; i++) {
       const a = poly[i]!;
       const b = poly[(i + 1) % poly.length]!;
-      if (near(closestOnSegment(w, a, b), w)) {
+      if (near(closestOnSegment(w, a, b), w) && !poly.some(v => near(v, w))) {
         remember();
         poly.splice(i + 1, 0, place(w));
-        return changed();
+        selected = null;
+        changed();
+        return true;
       }
     }
   }
-});
+  return false;
+}
 
 el.canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
@@ -446,6 +486,13 @@ function remove(t: Target | null) {
   else return void history.pop();
   hover = null;
   selected = null;
+  changed();
+}
+
+// Drop the shape being drawn, and a portal waiting for its second end.
+function cancelShape() {
+  drawing = [];
+  if (draft.portals.some(p => !p.b)) draft.portals = draft.portals.filter(p => p.b);
   changed();
 }
 
@@ -484,10 +531,10 @@ window.addEventListener('keydown', e => {
   } else if (e.key === 'Escape' && tool === 'test') {
     testReset();
   } else if (e.key === 'Escape') {
-    drawing = [];
-    // A portal waiting for its second end goes too.
-    if (draft.portals.some(p => !p.b)) draft.portals = draft.portals.filter(p => p.b);
-    changed();
+    if (!el.drawer.hidden) return openDrawer(false);
+    el.problems.hidden = true;
+    selected = null;
+    cancelShape();
   } else if ((e.key === 'Delete' || e.key === 'Backspace') && tool !== 'test') {
     remove(hover ?? selectedTarget());
   } else if (!e.metaKey && !e.ctrlKey && KEYS[e.key.toLowerCase()]) {
@@ -499,6 +546,8 @@ window.addEventListener('keyup', e => (free = e.shiftKey));
 function selectedTarget(): Target | null {
   if (!selected) return null;
   if (selected.kind === 'ramp') return { kind: 'zone', zone: 'ramps', i: selected.i };
+  if (selected.kind === 'zone') return { kind: 'zone', zone: selected.zone, i: selected.i };
+  if (selected.kind === 'corner') return { kind: 'vertex', poly: selected.poly, i: selected.i };
   if (selected.kind === 'well') return { kind: 'well', i: selected.i };
   return { kind: 'portal', i: selected.i, end: 'a' };
 }
@@ -521,6 +570,7 @@ function setTool(t: Tool) {
   tool = t;
   drawing = [];
   hover = null;
+  selected = null;
   el.canvas.style.cursor = t === 'move' || t === 'test' ? 'default' : 'crosshair';
   renderPanel();
   draw();
@@ -641,11 +691,6 @@ function startProbe() {
 
 // --- Panel ------------------------------------------------------------------
 
-el.tools.addEventListener('click', e => {
-  const t = (e.target as HTMLElement).closest('button')?.dataset.tool as Tool | undefined;
-  if (t) setTool(t);
-});
-
 el.name.addEventListener('input', () => {
   draft.name = el.name.value;
   changed();
@@ -660,11 +705,14 @@ el.par.addEventListener('input', () => {
 let propsFor = '';
 function renderProps() {
   if (tool === 'test') return renderTestProps();
-  const key = selected ? `${selected.kind}:${selected.i}` : '';
-  const ramp = selected?.kind === 'ramp' ? draft.ramps[selected.i] : undefined;
-  const well = selected?.kind === 'well' ? draft.wells[selected.i] : undefined;
-  const portal = selected?.kind === 'portal' ? draft.portals[selected.i] : undefined;
-  if (!ramp && !well && !portal) {
+  const sel = selected;
+  const key = sel ? `${sel.kind}:${sel.kind === 'zone' ? sel.zone : ''}:${sel.i}:${sel.kind === 'corner' ? sel.poly.length : ''}` : '';
+  const ramp = sel?.kind === 'ramp' ? draft.ramps[sel.i] : undefined;
+  const well = sel?.kind === 'well' ? draft.wells[sel.i] : undefined;
+  const portal = sel?.kind === 'portal' ? draft.portals[sel.i] : undefined;
+  const zone = sel?.kind === 'zone' ? draft[sel.zone][sel.i] : undefined;
+  const corner = sel?.kind === 'corner' && sel.poly[sel.i] ? sel : undefined;
+  if (!ramp && !well && !portal && !zone && !corner) {
     el.props.hidden = true;
     propsFor = '';
     return;
@@ -682,9 +730,11 @@ function renderProps() {
     return;
   }
   propsFor = key;
+  propsSince = performance.now();
   const rows: HTMLElement[] = [];
   const title = document.createElement('p');
   title.className = 'props-title';
+  title.title = 'Drag to move this out of the way';
   rows.push(title);
   if (ramp) {
     title.textContent = 'RAMP';
@@ -718,34 +768,109 @@ function renderProps() {
       changed();
     });
     rows.push(pick);
+  } else if (zone && sel?.kind === 'zone') {
+    title.textContent = sel.zone === 'blocks' ? 'BLOCK' : 'RIVER';
+  } else if (corner) {
+    title.textContent = 'CORNER';
   }
+  const target = selectedTarget();
+  const drop = Object.assign(document.createElement('button'), { type: 'button', className: 'danger', textContent: 'DELETE' });
+  // A shape keeps at least three corners.
+  drop.disabled = !!corner && corner.poly.length <= 3;
+  drop.addEventListener('click', () => remove(target));
+  rows.push(drop);
   el.props.replaceChildren(...rows);
 }
 
+// Test play's own buttons, in the right-hand column above MOVE and TEST:
+// the strokes so far, back to the tee, probe, and what the probe found.
+let noteShown = '';
 function renderTestProps() {
-  el.props.hidden = false;
-  if (propsFor !== 'test') {
-    propsFor = 'test';
-    const title = Object.assign(document.createElement('p'), { className: 'props-title', textContent: 'TEST PLAY' });
-    const info = Object.assign(document.createElement('p'), { className: 'props-info' });
-    const row = Object.assign(document.createElement('div'), { className: 'field-row' });
-    const back = Object.assign(document.createElement('button'), { type: 'button', textContent: 'BACK TO TEE' });
-    back.addEventListener('click', testReset);
-    const go = Object.assign(document.createElement('button'), { type: 'button', textContent: 'PROBE' });
-    go.addEventListener('click', startProbe);
-    row.append(back, go);
-    const result = Object.assign(document.createElement('p'), { className: 'props-info' });
-    el.props.replaceChildren(title, info, row, result);
+  el.props.hidden = true;
+  propsFor = '';
+  const [strokes, sinks] = [el.testStrokes.querySelector('b')!, el.testSinks.querySelector('b')!];
+  strokes.textContent = String(test.strokes);
+  el.testProbe.disabled = test.rolling || test.probing;
+  // River, black hole, sunk: said once, over the canvas.
+  if (test.note !== noteShown) {
+    noteShown = test.note;
+    if (test.note) toast(test.note);
   }
-  const [, info, row, result] = el.props.children as unknown as HTMLElement[];
-  info!.textContent = `Strokes: ${test.strokes}${test.note ? `. ${test.note}` : ''}`;
-  (row!.lastElementChild as HTMLButtonElement).disabled = test.rolling || test.probing;
   const p = test.probe;
-  result!.textContent = !p
-    ? 'PROBE tries every direction at 12 powers from where the ball is, and shows which can sink.'
-    : `${test.probing ? 'Probing… ' : ''}${p.sunk} of ${p.tried} shots sink (${((p.sunk / Math.max(1, p.tried)) * 100).toFixed(1)}%)` +
-      (test.probing ? '' : p.sunk ? '. Gold rays are directions that can.' : '. None can from here.');
+  el.testSinks.hidden = !p;
+  if (p) {
+    sinks.textContent = test.probing ? '…' : `${Math.round((p.sunk / Math.max(1, p.tried)) * 100)}%`;
+    el.testSinks.title = `${p.sunk} of ${p.tried} shots sink from here` + (p.sunk ? '; gold rays are directions that can' : '');
+  }
 }
+
+function propsAnchor(): Vec | null {
+  const sel = selected;
+  if (!sel) return null;
+  if (sel.kind === 'ramp') return draft.ramps[sel.i] ? centroid(draft.ramps[sel.i]!.area) : null;
+  if (sel.kind === 'well') return draft.wells[sel.i]?.at ?? null;
+  if (sel.kind === 'portal') return draft.portals[sel.i]?.a ?? null;
+  if (sel.kind === 'zone') return draft[sel.zone][sel.i] ? centroid(draft[sel.zone][sel.i]!) : null;
+  return sel.kind === 'corner' ? sel.poly[sel.i] ?? null : null;
+}
+
+// Where the card was dragged to, if it was: it stays there from then on.
+let propsPinned: Vec | null = null;
+
+function placeProps() {
+  if (el.props.hidden || tool === 'test') return;
+  if (propsPinned) {
+    const [W, H] = [el.stage.clientWidth, el.stage.clientHeight];
+    el.props.style.left = `${clamp(propsPinned.x, 4, W - el.props.offsetWidth - 4)}px`;
+    el.props.style.top = `${clamp(propsPinned.y, 4, H - el.props.offsetHeight - 4)}px`;
+    return;
+  }
+  const at = propsAnchor();
+  if (!at) return;
+  const p = toScreen(at);
+  const w = el.props.offsetWidth;
+  const h = el.props.offsetHeight;
+  // Clear of the tools and the top bar, and never over the element itself,
+  // which is under the finger that just tapped it.
+  const [x0, y0] = [el.tools.offsetLeft + el.tools.offsetWidth + 6, 56];
+  const [x1, y1] = [el.toolsRight.offsetLeft - 6, el.stage.clientHeight - 8];
+  const gap = 28;
+  const spots = [
+    { x: p.x + gap, y: p.y - h / 2 },          // right
+    { x: p.x - gap - w, y: p.y - h / 2 },      // left
+    { x: p.x - w / 2, y: p.y + gap },          // below
+    { x: p.x - w / 2, y: p.y - gap - h },      // above
+  ].map(s => ({ x: clamp(s.x, x0, x1 - w), y: clamp(s.y, y0, y1 - h) }));
+  const covers = (s: Vec) => p.x > s.x - 8 && p.x < s.x + w + 8 && p.y > s.y - 8 && p.y < s.y + h + 8;
+  const spot = spots.find(s => !covers(s)) ?? spots[2]!;
+  el.props.style.left = `${spot.x}px`;
+  el.props.style.top = `${spot.y}px`;
+}
+
+// Dragging the card by its title.
+let propsGrab: Vec | null = null;
+el.props.addEventListener('pointerdown', e => {
+  if (!(e.target as HTMLElement).closest('.props-title')) return;
+  propsGrab = { x: e.clientX - el.props.offsetLeft, y: e.clientY - el.props.offsetTop };
+  el.props.setPointerCapture(e.pointerId);
+});
+el.props.addEventListener('pointermove', e => {
+  if (!propsGrab) return;
+  propsPinned = { x: e.clientX - propsGrab.x, y: e.clientY - propsGrab.y };
+  placeProps();
+});
+el.props.addEventListener('pointerup', () => (propsGrab = null));
+el.props.addEventListener('pointercancel', () => (propsGrab = null));
+
+// A tap that opens the card mustn't also press a button on it: touch sends
+// its click after the card has appeared.
+let propsSince = 0;
+el.props.addEventListener('click', e => {
+  if (performance.now() - propsSince < 400) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
 
 function slider(label: string, prop: string, value: number, [lo, hi]: readonly [number, number], step: number, set: (v: number) => void) {
   const row = document.createElement('label');
@@ -766,13 +891,27 @@ function slider(label: string, prop: string, value: number, [lo, hi]: readonly [
   return row;
 }
 
-const status = (text: string) => sets.status(text);
+// Messages go to the set's status line and, briefly, over the canvas.
+function status(text: string) {
+  sets.status(text);
+  toast(text);
+}
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+function toast(text: string) {
+  el.toast.textContent = text;
+  el.toast.hidden = !text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.toast.hidden = true), 3500);
+}
 
 function renderPanel() {
   if (document.activeElement !== el.name) el.name.value = draft.name;
   if (document.activeElement !== el.par) el.par.value = String(draft.par);
-  for (const b of el.tools.querySelectorAll<HTMLButtonElement>('button')) b.classList.toggle('on', b.dataset.tool === tool);
-  el.help.textContent = HELP[tool];
+  for (const b of toolButtons()) b.classList.toggle('on', b.dataset.tool === tool);
+  el.testTools.hidden = tool !== 'test';
+  el.testGroup.classList.toggle('on', tool === 'test');
+  el.undo.disabled = history.length === 0;
   renderProps();
 
   const { errors } = parseHole(toFile(draft));
@@ -783,6 +922,29 @@ function renderPanel() {
       ? problems.map(p => Object.assign(document.createElement('li'), { textContent: p }))
       : [Object.assign(document.createElement('li'), { textContent: '✓ Follows the rules', className: 'ok' })]),
   );
+  renderState();
+}
+
+// The pill by the menu: is the set ready? Tapping it lists what isn't.
+function renderState() {
+  const n = el.rules.querySelectorAll('li:not(.ok)').length + el.setRules.querySelectorAll('li:not(.ok)').length;
+  el.state.textContent = n ? `⚠ ${n} TO FIX` : '✓ READY';
+  el.state.className = `pill ${n ? 'bad' : 'ok'}`;
+}
+
+// While a shape or a portal pair is half placed: how to finish it, for
+// fingers that have no Enter or Esc.
+function renderShapeBar() {
+  const portal = draft.portals.some(p => !p.b);
+  el.shapeBar.hidden = !drawing.length && !portal;
+  if (el.shapeBar.hidden) return;
+  el.shapeHint.textContent = portal
+    ? 'Now where the ball comes out.'
+    : drawing.length < 3
+      ? `${drawing.length} of at least 3 corners.`
+      : `${drawing.length} corners: tap the first or DONE.`;
+  el.shapeDone.hidden = portal;
+  el.shapeDone.disabled = drawing.length < 3;
 }
 
 // --- Drawing ----------------------------------------------------------------
@@ -826,7 +988,14 @@ const moving = () => ({
 
 const isSelected = (kind: NonNullable<Selection>['kind'], i: number) => selected?.kind === kind && selected.i === i;
 
+// The canvas, and what floats over it that follows the hole.
 function draw() {
+  paint();
+  renderShapeBar();
+  placeProps();
+}
+
+function paint() {
   const dpr = window.devicePixelRatio || 1;
   const w = el.stage.clientWidth;
   const h = el.stage.clientHeight;
@@ -834,9 +1003,26 @@ function draw() {
     el.canvas.width = Math.round(w * dpr);
     el.canvas.height = Math.round(h * dpr);
   }
-  view.scale = Math.min(w / (FRAME.w + MARGIN * 2), h / (FRAME.h + MARGIN * 2));
-  view.ox = (w - FRAME.w * view.scale) / 2;
-  view.oy = (h - FRAME.h * view.scale) / 2;
+  // Between the tools on either side, under the bar along the top. The hole
+  // sits in the middle of the page, and where there's room the tools (and
+  // the menu above them) come in to sit beside it.
+  const [tw, rw] = [el.tools.offsetWidth, el.toolsRight.offsetWidth];
+  const edge = 4;
+  const top = 54;
+  const bottom = 6;
+  const [aw, ah] = [w - tw - rw - edge * 2, h - top - bottom];
+  view.scale = Math.min(aw / (FRAME.w + MARGIN * 2), ah / (FRAME.h + MARGIN * 2));
+  const margin = MARGIN * view.scale;
+  const width = FRAME.w * view.scale;
+  view.ox = clamp((w - width) / 2, edge + tw + margin, w - edge - rw - margin - width);
+  view.oy = top + (ah - FRAME.h * view.scale) / 2;
+  const leftAt = Math.max(edge, view.ox - margin - tw);
+  const rightAt = Math.min(w - edge - rw, view.ox + width + margin);
+  if (el.tools.style.left !== `${leftAt}px` || el.toolsRight.style.left !== `${rightAt}px`) {
+    el.tools.style.left = `${leftAt}px`;
+    el.toolsRight.style.left = `${rightAt}px`;
+    el.topbar.style.left = `${leftAt + 8}px`;
+  }
   const px = 1 / view.scale; // one screen pixel, in hole units
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1032,7 +1218,82 @@ const sets = setupSets({
     draw();
   },
   blank: () => toFile(blank()),
+  rendered: renderState,
+  picked: () => openDrawer(false),
 });
+
+// --- Around the canvas -------------------------------------------------------
+
+// The tools, on both sides: drawing on the left; moving and testing on the right.
+function toolButtons() {
+  return document.querySelectorAll<HTMLButtonElement>('.toolbar [data-tool]');
+}
+for (const bar of [el.tools, el.toolsRight]) {
+  bar.addEventListener('click', e => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]')?.dataset.tool as Tool | undefined;
+    if (t) setTool(t);
+  });
+}
+el.undo.addEventListener('click', undo);
+el.testTee.addEventListener('click', testReset);
+el.testProbe.addEventListener('click', startProbe);
+el.shapeDone.addEventListener('click', closeShape);
+el.shapeCancel.addEventListener('click', cancelShape);
+
+el.state.addEventListener('click', () => {
+  el.problems.hidden = !el.problems.hidden;
+  el.state.setAttribute('aria-expanded', String(!el.problems.hidden));
+});
+
+// The set, its holes and saving live in a drawer over the canvas. It stays
+// open across a reload (the dev server reloads when a set file is written).
+const DRAWER_KEY = 'sinkhole-editor-drawer';
+function openDrawer(on: boolean) {
+  el.drawer.hidden = el.backdrop.hidden = !on;
+  el.menu.setAttribute('aria-expanded', String(on));
+  try {
+    sessionStorage.setItem(DRAWER_KEY, on ? '1' : '');
+  } catch {
+    // Storage off: it starts closed.
+  }
+  if (on) {
+    el.problems.hidden = true;
+    selected = null;
+    renderPanel();
+  }
+}
+el.menu.addEventListener('click', () => openDrawer(true));
+try {
+  if (sessionStorage.getItem(DRAWER_KEY)) openDrawer(true);
+} catch {
+  // Storage off.
+}
+el.menuClose.addEventListener('click', () => openDrawer(false));
+el.backdrop.addEventListener('click', () => openDrawer(false));
+
+// How it works: every tool, as the toolbar shows it, and what it does.
+el.infoTools.replaceChildren(
+  ...[...toolButtons()].sort((a, b) => Number(b.dataset.tool === 'move') - Number(a.dataset.tool === 'move')).map(b => {
+    const t = b.dataset.tool as Tool;
+    const li = document.createElement('li');
+    const icon = b.cloneNode(true) as HTMLElement;
+    icon.removeAttribute('data-tool');
+    icon.classList.remove('on');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.tabIndex = -1;
+    const text = document.createElement('div');
+    const name = document.createElement('b');
+    const key = b.title.match(/\((.)\)$/)?.[1];
+    name.append(b.getAttribute('aria-label')!.toUpperCase(), ...(key ? [' ', Object.assign(document.createElement('kbd'), { textContent: key })] : []));
+    text.append(name, Object.assign(document.createElement('p'), { textContent: HELP[t] }));
+    li.append(icon, text);
+    return li;
+  }),
+);
+el.infoOpen.addEventListener('click', () => el.info.showModal());
+el.infoClose.addEventListener('click', () => el.info.close());
+// A tap outside the box closes it too.
+el.info.addEventListener('click', e => e.target === el.info && el.info.close());
 
 // --- Start ---------------------------------------------------------------
 

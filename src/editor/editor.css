@@ -9,6 +9,11 @@
   --fg: #eef0fa;
   --muted: #c0c4dc;
   --font: 'Orbitron', system-ui, sans-serif;
+  --round: 40px;          /* the round tool buttons */
+}
+
+@media (pointer: coarse) {
+  :root { --round: 40px; }
 }
 
 * { box-sizing: border-box; }
@@ -18,19 +23,16 @@
 html, body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
 }
 
-body {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-}
-
+/* The canvas fills the page; everything else floats over it. */
 .stage {
-  position: relative;
-  min-height: 0;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
 }
 
@@ -42,17 +44,8 @@ canvas {
   touch-action: none;
 }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 18px 16px;
-  border-left: 1px solid var(--line);
-  overflow-y: auto;
-}
-
 h1 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 18px;
   font-weight: 900;
   letter-spacing: 0.1em;
@@ -90,52 +83,220 @@ input, select, button {
 
 input:focus, select:focus { outline: none; border-color: var(--neon); }
 
-button { cursor: pointer; }
+button { cursor: pointer; touch-action: manipulation; }
 button:hover { border-color: var(--neon); }
 button:disabled { opacity: 0.4; cursor: default; border-color: var(--line); }
 button.primary { border-color: var(--neon); box-shadow: 0 0 10px -4px var(--neon); }
+button.danger:not(:disabled) { color: var(--accent); }
+button.danger:not(:disabled):hover { border-color: var(--accent); }
 
 .field-row { display: flex; gap: 8px; }
 .field-row > * { flex: 1; }
 
-.tools {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.tools button {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-}
-
-.tools button.on {
-  border-color: var(--gold);
-  color: var(--gold);
-  box-shadow: 0 0 10px -4px var(--gold);
-}
-
 kbd {
   font: 700 10px var(--font);
-  color: var(--muted);
+  color: var(--neon);
 }
 
-.props {
+/* --- Round buttons: the tools, the menu, closing ---------------------------- */
+
+.round {
+  display: grid;
+  place-items: center;
+  width: var(--round);
+  height: var(--round);
+  padding: 0;
+  border-radius: 50%;
+  background: rgb(18 21 42 / 0.85);
+  color: var(--fg);
+}
+
+.round svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.round svg .fill { fill: currentColor; }
+
+/* A tool: its round icon with a small label under it. */
+.tool {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: calc(var(--round) + 16px);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+}
+
+.tool .round { border: 1px solid var(--line); }
+.tool:hover .round { border-color: var(--neon); }
+.tool:disabled .round { border-color: var(--line); }
+
+.tool-label {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  /* Readable over whatever is drawn behind. */
+  text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 2px var(--bg);
+}
+
+.tool.on .round {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 10px -3px var(--gold);
+}
+
+.tool.on .tool-label { color: var(--gold); }
+
+/* Its left edge follows the hole (see editor.ts). */
+.toolbar {
+  position: absolute;
+  top: 64px;
+  bottom: 12px;
+  left: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar { display: none; }
+.toolbar-gap { flex: none; height: 6px; }
+
+/* Undo and help, then moving and testing, on the other side of the hole.
+   Test play's own buttons show under TEST. */
+.toolbar-right { left: auto; }
+
+.test-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 6px;
+}
+
+/* TEST and its own buttons, boxed in gold while testing. An inset line, so
+   the column keeps its width. */
+.test-group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-radius: 10px;
+}
+
+.test-group.on {
+  padding: 6px 0;
+  box-shadow: inset 0 0 0 1px var(--gold), 0 0 12px -4px var(--gold);
+}
+
+/* A number in place of an icon. */
+.stat .round { font-size: 13px; }
+.stat { cursor: default; }
+.stat:hover .round { border-color: var(--line); }
+
+/* --- Top bar: the menu, whether the set is ready, where you are ------------- */
+
+.topbar {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.topbar > * { pointer-events: auto; }
+
+.pill {
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.pill.ok { border-color: var(--good); color: var(--good); }
+.pill.bad { border-color: var(--accent); color: var(--accent); }
+
+.where {
+  overflow: hidden;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* --- Floating cards ---------------------------------------------------------- */
+
+.card {
+  position: absolute;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--gold);
-  border-radius: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgb(18 21 42 / 0.94);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
 }
 
-.props-title {
+.card-title, .props-title {
   margin: 0;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.2em;
   color: var(--gold);
+}
+
+/* The card's handle: drag it out of the way. */
+.props-title {
+  display: flex;
+  justify-content: space-between;
+  margin: -10px -12px 0;
+  padding: 10px 12px 4px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.props-title::after {
+  content: '⠿';
+  font-size: 14px;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.problems {
+  top: 60px;
+  left: 60px;
+  width: min(320px, calc(100% - 70px));
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+}
+
+/* An element's settings, next to it. */
+.props {
+  width: 230px;
+  border-color: var(--gold);
+}
+
+.props-info {
+  flex: 1;
+  font: 700 11px var(--font);
+  letter-spacing: 0.1em;
 }
 
 .props-info {
@@ -145,31 +306,50 @@ kbd {
   line-height: 1.5;
 }
 
-.tools button.test { grid-column: 1 / -1; }
-
 .slider {
-  grid-template-columns: 76px 1fr 40px;
+  grid-template-columns: 70px 1fr 40px;
   font-size: 10px;
 }
 
 .slider input { padding: 0; accent-color: var(--gold); }
 .slider output { font-size: 11px; color: var(--fg); text-align: right; }
 
-.help, .keys, .status {
-  margin: 0;
+.shape-bar {
+  left: 50%;
+  bottom: 12px;
+  flex-direction: row;
+  align-items: center;
+  width: max-content;
+  max-width: calc(100% - 80px);
+  transform: translateX(-50%);
+}
+
+.shape-bar span {
   font-family: system-ui, sans-serif;
   font-size: 12px;
-  line-height: 1.5;
   color: var(--muted);
 }
 
-.keys { margin-top: auto; }
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 70px;
+  max-width: calc(100% - 100px);
+  margin: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgb(18 21 42 / 0.94);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
 
 .rules {
   margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  padding: 0;
   list-style: none;
   font-family: system-ui, sans-serif;
   font-size: 12px;
@@ -179,7 +359,35 @@ kbd {
 .rules li { color: var(--accent); }
 .rules li.ok { color: var(--good); }
 
-.status:empty { display: none; }
+/* --- The drawer: the set, its holes, saving --------------------------------- */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(5 6 15 / 0.5);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(340px, 92vw);
+  padding: 16px;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  overflow-y: auto;
+  box-shadow: 8px 0 32px rgb(0 0 0 / 0.5);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 
 h2.section {
   margin: 6px 0 0;
@@ -191,10 +399,15 @@ h2.section {
   color: var(--gold);
 }
 
-button.danger:not(:disabled) { color: var(--accent); }
-button.danger:not(:disabled):hover { border-color: var(--accent); }
+.keys, .status {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
 
-.set-foot { align-items: center; }
+.status:empty { display: none; }
 
 .set-holes {
   display: flex;
@@ -207,7 +420,7 @@ button.danger:not(:disabled):hover { border-color: var(--accent); }
 
 .set-holes li {
   display: grid;
-  grid-template-columns: 1fr auto repeat(4, 24px);
+  grid-template-columns: 1fr auto repeat(4, 28px);
   align-items: center;
   gap: 4px;
 }
@@ -233,11 +446,86 @@ button.danger:not(:disabled):hover { border-color: var(--accent); }
   color: var(--muted);
 }
 
+.set-foot { align-items: center; }
+
 .set-total {
+  flex: none;
   margin: 0;
   font-size: 11px;
   letter-spacing: 0.12em;
+  white-space: nowrap;
   color: var(--neon);
 }
 
-.set-foot .set-total { flex: none; white-space: nowrap; }
+/* --- How it works ------------------------------------------------------------- */
+
+.info {
+  width: min(520px, calc(100% - 24px));
+  max-height: calc(100% - 48px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.info::backdrop { background: rgb(5 6 15 / 0.6); }
+
+.info-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.info-head h2 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.2em;
+  color: var(--neon);
+}
+
+.info-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 16px;
+  list-style: none;
+}
+
+.info-tools li {
+  display: grid;
+  grid-template-columns: calc(var(--round) + 16px) 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.info-tools .tool { pointer-events: none; }
+.info-tools .tool-label { display: none; }
+
+.info-tools b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.info-tools p, .info-more p {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.info-more {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 18px;
+}

@@ -38,6 +38,10 @@ export interface SetsHost {
   load(hole: HoleDraft): void;
   // A fresh hole to add.
   blank(): HoleDraft;
+  // The set's rules have been listed again.
+  rendered(): void;
+  // A hole was picked to work on.
+  picked(): void;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -52,6 +56,7 @@ export function setupSets(host: SetsHost) {
     list: $('set-holes'),
     add: $<HTMLButtonElement>('add-hole'),
     total: $('set-total'),
+    where: $('where'),
     title: $('hole-title'),
     rules: $('set-rules'),
     save: $<HTMLButtonElement>('save'),
@@ -96,12 +101,13 @@ export function setupSets(host: SetsHost) {
   const checked = () => parseSet(file());
 
   // Set-level problems: the file name, the name, how many holes, and which
-  // holes break their rules (the hole's own list says how).
-  function problems(): string[] {
+  // holes break their rules (the hole's own list says how). `skip` leaves
+  // out the hole being edited, whose list is right beside this one.
+  function problems(skip = -1): string[] {
     const out = validSetId(set.id) ? [] : ['file: lowercase letters, digits and dashes'];
     const { errors } = checked();
     out.push(...errors.filter(e => !e.startsWith('hole ')));
-    const bad = set.holes.flatMap((h, i) => (parseHole(h).hole ? [] : [i + 1]));
+    const bad = set.holes.flatMap((h, i) => (i === skip || parseHole(h).hole ? [] : [i + 1]));
     if (bad.length) out.push(`${bad.length === 1 ? 'hole' : 'holes'} ${bad.join(', ')}: fix the rules`);
     return out;
   }
@@ -139,7 +145,10 @@ export function setupSets(host: SetsHost) {
         const li = document.createElement('li');
         li.classList.toggle('on', i === at);
         li.classList.toggle('bad', !parseHole(h).hole);
-        const pick = button(`${i + 1}  ${h.name || 'Untitled'}`, 'set-hole', () => show(i));
+        const pick = button(`${i + 1}  ${h.name || 'Untitled'}`, 'set-hole', () => {
+          show(i);
+          host.picked();
+        });
         const par = document.createElement('span');
         par.className = 'set-par';
         par.textContent = `PAR ${h.par ?? '?'}`;
@@ -175,16 +184,18 @@ export function setupSets(host: SetsHost) {
     const par = set.holes.reduce((sum, h) => sum + (h.par ?? 0), 0);
     el.total.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${par}`;
     el.add.disabled = n >= 18;
+    el.where.textContent = `${set.name || set.id} · ${at + 1}/${n} ${set.holes[at]?.name ?? ''}`.toUpperCase();
 
-    const list = problems();
+    const shown = problems(at);
     el.rules.replaceChildren(
-      ...(list.length
-        ? list.map(p => Object.assign(document.createElement('li'), { textContent: p }))
-        : [Object.assign(document.createElement('li'), { textContent: '✓ Ready to save', className: 'ok' })]),
+      ...(shown.length
+        ? shown.map(p => Object.assign(document.createElement('li'), { textContent: p }))
+        : [Object.assign(document.createElement('li'), { textContent: '✓ Nothing else', className: 'ok' })]),
     );
-    el.save.disabled = el.download.disabled = el.repo.disabled = list.length > 0;
+    el.save.disabled = el.download.disabled = el.repo.disabled = problems().length > 0;
     const o = set.origin;
     el.remove.disabled = !o || (o.from === 'game' && (!LOCAL || o.id === DEFAULT_SET));
+    host.rendered();
   }
 
   // --- Opening ---------------------------------------------------------------
@@ -265,6 +276,7 @@ export function setupSets(host: SetsHost) {
     set.holes.push(host.blank());
     changed();
     show(set.holes.length - 1);
+    host.picked();
   });
 
   // --- Saving ------------------------------------------------------------------
