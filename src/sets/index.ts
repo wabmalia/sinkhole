@@ -1,14 +1,16 @@
 import type { Course } from '../engine/physics';
 import { courseFrom, type Hole } from '../holes/types';
 import { BROWSER_PREFIX, browserSets, isBrowserSet, onBrowserSets } from './browser';
-import { DEFAULT_SET, parseSet, type HoleSet } from './format';
+import { DEFAULT_SET, parseSet, setToJson, type HoleSet } from './format';
 
 export { DEFAULT_SET } from './format';
 export { isBrowserSet } from './browser';
 
 // Every set by id: the JSON files in this folder, named <id>.json, and the
 // ones saved in this browser (ids starting "my:"). A file that breaks the
-// rules is left out (and, in the repo, fails the tests).
+// rules is left out (and, in the repo, fails the tests). A guest also gets
+// the host's browser set while in their room, sent over the connection; it
+// takes the place of the guest's own set of that name until they leave.
 //
 // The game state refers to a hole by a key, "<set id>/<number>" counting
 // from 0, so it stays small enough to send over the network.
@@ -23,18 +25,41 @@ for (const [path, data] of Object.entries(files)) {
 }
 
 let SETS: Record<string, HoleSet> = {};
+let shared: Record<string, HoleSet> = {};
 const courses = new Map<string, Course>();
 
-function load() {
+// Also when another tab (the editor) saved or deleted one.
+export function reloadSets() {
   SETS = { ...BUILT };
   for (const [id, data] of Object.entries(browserSets())) {
     const { set } = parseSet(data);
     if (set) SETS[BROWSER_PREFIX + id] = set;
   }
+  Object.assign(SETS, shared);
   courses.clear();
 }
-load();
-onBrowserSets(load);
+reloadSets();
+onBrowserSets(reloadSets);
+
+// The host's set, as a guest receives it. It comes from another browser, so
+// it's checked like a file; false if it breaks the rules.
+export function useSharedSet(id: string, data: unknown): boolean {
+  const { set } = parseSet(data);
+  if (!isBrowserSet(id) || !set) return false;
+  shared = { [id]: set };
+  reloadSets();
+  return true;
+}
+
+// Left the room.
+export function clearSharedSet() {
+  if (!Object.keys(shared).length) return;
+  shared = {};
+  reloadSets();
+}
+
+// A browser set as a file, to send to the guests.
+export const setFile = (id: string): unknown => JSON.parse(setToJson(setOf(id)));
 
 export function setOf(id: string): HoleSet {
   return SETS[id] ?? SETS[DEFAULT_SET]!;
@@ -42,10 +67,11 @@ export function setOf(id: string): HoleSet {
 
 export const hasSet = (id: unknown): id is string => typeof id === 'string' && Object.hasOwn(SETS, id);
 
-// The lobby's list, shortest first; the browser's sets only when asked for.
+// The lobby's list, shortest first: the browser's sets only when asked for
+// (the host's), and the host's set a guest was sent.
 export const setIds = (withBrowser = false) =>
   Object.keys(SETS)
-    .filter(id => withBrowser || !isBrowserSet(id))
+    .filter(id => withBrowser || !isBrowserSet(id) || Object.hasOwn(shared, id))
     .sort((a, b) => SETS[a]!.holes.length - SETS[b]!.holes.length || SETS[a]!.name.localeCompare(SETS[b]!.name));
 
 export const holeKeys = (setId: string) => setOf(setId).holes.map((_, i) => `${setId}/${i}`);

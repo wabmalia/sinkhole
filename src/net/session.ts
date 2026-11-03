@@ -3,7 +3,8 @@ import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 import { HostRoom, type HostSnapshot } from './host';
 import { iceServers } from './relay';
-import { DEFAULT_SET, hasSet } from '../sets';
+import { clearSharedSet, DEFAULT_SET, hasSet, useSharedSet } from '../sets';
+import { onBrowserSets } from '../sets/browser';
 import { cleanName, newRoomCode, PEER_PREFIX, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 // The connection side, the same shape as turn7's: one browser hosts the room
@@ -143,7 +144,6 @@ class Session {
       setId: DEFAULT_SET,
       match: null,
       game: null,
-      solo: code === SOLO,
     };
     this.me = snap.hostId;
     this.role = 'host';
@@ -216,6 +216,9 @@ class Session {
   }
   kick(id: string) {
     this.host?.kick(id);
+  }
+  setsChanged() {
+    this.host?.setsChanged();
   }
 
   // Joining ---------------------------------------------------------------
@@ -292,6 +295,9 @@ class Session {
         this.set({ room: msg.room, status: 'room' });
         location.hash = `#/join/${this.code}`;
         break;
+      case 'set':
+        if (!useSharedSet(String(msg.id), msg.set)) this.fail(`Couldn't load the host's set.`);
+        break;
       case 'shot':
         this.emit('shot', msg.by, msg.shot, msg.at);
         break;
@@ -350,6 +356,7 @@ class Session {
     this.solo = false;
     this.linked = true;
     this.me = tabId();
+    clearSharedSet();
   }
 
   private fail(message: string) {
@@ -377,3 +384,7 @@ class Session {
 }
 
 export const session = new Session();
+
+// The editor, open in another tab, saved or deleted a set: the room may be
+// playing it.
+onBrowserSets(() => session.setsChanged());

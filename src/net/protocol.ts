@@ -4,7 +4,7 @@ import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 
 // Bumped whenever the messages change, so pages on different versions never meet.
-export const PEER_PREFIX = 'sinkhole-v3-';
+export const PEER_PREFIX = 'sinkhole-v4-';
 export const NAME_MAX = 16;
 
 export interface MemberView {
@@ -36,6 +36,9 @@ export type ToHost =
 
 export type ToClient =
   | { t: 'room'; room: RoomView }
+  // The host's browser set, as its file, before any room update that uses
+  // it: guests don't have it otherwise.
+  | { t: 'set'; id: string; set: unknown }
   // Sent just before the room update the shot leads to, so screens can
   // animate it from the state they already have.
   | { t: 'shot'; by: string; shot: Shot; at?: Vec }

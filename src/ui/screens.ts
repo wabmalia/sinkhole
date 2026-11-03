@@ -189,10 +189,11 @@ function render() {
 onBrowserSets(() => session.room && !session.room.game && renderSets(session.room.setId));
 
 // The sets to play, shortest first. The host picks; everyone sees the pick.
-// Solo play lists the sets saved in this browser too.
+// The host's list has the sets saved in their browser too, and guests see
+// the one picked.
 function renderSets(chosen: string) {
   el.sets.replaceChildren(
-    ...setIds(session.solo).map(id => {
+    ...setIds(session.isHost).map(id => {
       const set = setOf(id);
       const li = document.createElement('li');
       const b = document.createElement('button');
@@ -207,7 +208,7 @@ function renderSets(chosen: string) {
       const info = document.createElement('span');
       info.className = 'set-info';
       const n = set.holes.length;
-      const mine = isBrowserSet(id) ? ' · YOURS' : '';
+      const mine = !isBrowserSet(id) ? '' : session.isHost ? ' · YOURS' : " · HOST'S";
       info.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${parOf(holeKeys(id))}${mine}`;
       b.append(name, info);
       b.addEventListener('click', () => session.chooseSet(id));

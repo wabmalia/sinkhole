@@ -87,4 +87,22 @@ describe('sets saved in the browser', () => {
     expect(fresh.setIds(true)).toContain('my:mine');
     expect(setIds()).not.toContain('my:mine');
   });
+
+  it("puts the host's set in place of the guest's own until they leave", async () => {
+    saveBrowserSet('mine', parseSet({ name: 'Mine', holes: [hole('Own')] }).set!);
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    const fresh = await import('.');
+    const file = JSON.parse(setToJson(parseSet({ name: 'Theirs', holes: [hole('Host')] }).set!));
+    expect(fresh.useSharedSet('mine', file)).toBe(false);
+    expect(fresh.useSharedSet('my:mine', { name: 'Bad', holes: [] })).toBe(false);
+    expect(fresh.holeOf('my:mine/0').name).toBe('Own');
+
+    expect(fresh.useSharedSet('my:mine', file)).toBe(true);
+    expect(fresh.holeOf('my:mine/0').name).toBe('Host');
+    expect(fresh.setIds()).toContain('my:mine');
+    fresh.clearSharedSet();
+    expect(fresh.holeOf('my:mine/0').name).toBe('Own');
+    expect(fresh.setIds()).not.toContain('my:mine');
+  });
 });

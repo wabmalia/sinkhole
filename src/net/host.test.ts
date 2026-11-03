@@ -26,7 +26,7 @@ const lastRoom = (link: { inbox: ToClient[] }): RoomView =>
 function room(awayMs = 1000, snap: Partial<HostSnapshot> = {}) {
   const shots: string[] = [];
   const r = new HostRoom(
-    { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Hosty' }], setId: DEFAULT_SET, match: null, game: null, solo: false, ...snap },
+    { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Hosty' }], setId: DEFAULT_SET, match: null, game: null, ...snap },
     { change: () => {}, shot: by => shots.push(by), aim: () => {}, persist: () => {} },
     awayMs,
   );
@@ -175,24 +175,44 @@ describe('HostRoom', () => {
     expect(same.view().game).not.toBeNull();
   });
 
-  it('plays sets saved in the browser only when solo', async () => {
+  it('sends a set saved in the browser to the guests, before the room uses it', async () => {
     const store = new Map<string, string>();
     vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
     const hole = { name: 'Only', par: 3, outline: [[0, 0], [360, 0], [360, 900], [0, 900]], blocks: [], tee: { x: 120, y: 790, w: 120, h: 70 }, cup: [180, 130] };
     saveBrowserSet('mine', parseSet({ name: 'Mine', holes: [hole] }).set!);
     vi.resetModules();
     const { HostRoom: Fresh } = await import('./host');
-    const make = (solo: boolean) =>
-      new Fresh({ code: 'SOLO', hostId: 'host', members: [{ id: 'host', name: 'Me' }], setId: DEFAULT_SET, match: null, game: null, solo }, { change() {}, shot() {}, aim() {}, persist() {} });
-    const shared = make(false);
-    shared.chooseSet('my:mine');
-    expect(shared.view().setId).toBe(DEFAULT_SET);
-    const solo = make(true);
-    solo.chooseSet('my:mine');
-    expect(solo.view().setId).toBe('my:mine');
-    solo.start();
-    expect(solo.view().game!.holeId).toBe('my:mine/0');
-    expect(solo.snapshot().solo).toBe(true);
+    const r = new Fresh(
+      { code: 'ABCDE', hostId: 'host', members: [{ id: 'host', name: 'Me' }], setId: DEFAULT_SET, match: null, game: null },
+      { change() {}, shot() {}, aim() {}, persist() {} },
+    );
+    const link = fakeLink();
+    const h = r.attach(link);
+    h.message({ t: 'hello', id: 'p1', name: 'Ana' });
+    expect(link.inbox.some(m => m.t === 'set')).toBe(false);
+
+    r.chooseSet('my:mine');
+    expect(link.inbox.slice(-2).map(m => m.t)).toEqual(['set', 'room']);
+    const sent = link.inbox.at(-2) as Extract<ToClient, { t: 'set' }>;
+    expect(sent.id).toBe('my:mine');
+    expect(parseSet(sent.set).set!.name).toBe('Mine');
+
+    // Only once, not with every update.
+    r.start();
+    expect(link.inbox.filter(m => m.t === 'set')).toHaveLength(1);
+    expect(r.view().game!.holeId).toBe('my:mine/0');
+
+    // Back after a refresh: the set again, then the room.
+    const again = fakeLink();
+    r.attach(again).message({ t: 'hello', id: 'p1', name: 'Ana' });
+    expect(again.inbox.map(m => m.t)).toEqual(['set', 'room']);
+
+    // Edited in the editor: sent again, the match carries on.
+    saveBrowserSet('mine', parseSet({ name: 'Mine', holes: [{ ...hole, par: 4 }] }).set!);
+    (await import('../sets')).reloadSets(); // as on the storage event
+    r.setsChanged();
+    expect(again.inbox.filter(m => m.t === 'set')).toHaveLength(2);
+    expect(r.view().game).not.toBeNull();
     vi.unstubAllGlobals();
   });
 });

@@ -2,7 +2,7 @@ import { current, EngineError, forfeit, MAX_PLAYERS, play, type Game, type Membe
 import { createMatch, lastHole, nextHole, recordHole, type Match } from '../engine/match';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
-import { DEFAULT_SET, hasSet, holeKeys, isBrowserSet } from '../sets';
+import { DEFAULT_SET, hasSet, holeKeys, isBrowserSet, setFile } from '../sets';
 import { cleanName, validAim, validAt, validShot, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
 /** One connection to a remote browser. */
@@ -17,9 +17,6 @@ export interface HostSnapshot {
   members: Member[];
   setId: string;
   match: Match | null;
-  // Solo rooms can also play the sets saved in this browser; a room can't,
-  // since its guests don't have them.
-  solo: boolean;
   game: Game | null;
 }
 
@@ -44,13 +41,14 @@ export class HostRoom {
   readonly code: string;
   readonly hostId: string;
   private members: Member[];
-  private readonly solo: boolean;
   private setId: string;
   private match: Match | null;
   private game: Game | null;
   private links = new Map<string, Link>();
   private spectators = new Set<Link>();
   private away: ReturnType<typeof setTimeout> | undefined;
+  /** The browser set last sent to everyone, as sent; '' for none. */
+  private sentSet = '';
 
   constructor(
     snap: HostSnapshot,
@@ -60,13 +58,8 @@ export class HostRoom {
     this.code = snap.code;
     this.hostId = snap.hostId;
     this.members = snap.members;
-    this.solo = snap.solo;
     this.setId = this.playable(snap.setId) ? snap.setId : DEFAULT_SET;
-    // Back to the lobby if the saved match's set is gone or has changed (a
-    // browser set edited or deleted since).
-    const m = snap.match;
-    const keys = m && this.playable(m.setId) ? holeKeys(m.setId) : [];
-    this.match = m && m.holes.length === keys.length && m.holes.every((k, i) => k === keys[i]) ? m : null;
+    this.match = this.stillPlayable(snap.match);
     this.game = this.match ? snap.game : null;
     this.scheduleAway();
   }
@@ -120,8 +113,29 @@ export class HostRoom {
     this.changed();
   }
 
+  /** The sets saved in this browser changed: the editor, in another tab. */
+  setsChanged() {
+    if (!this.playable(this.setId)) this.setId = DEFAULT_SET;
+    this.match = this.stillPlayable(this.match);
+    if (!this.match) this.game = null;
+    this.changed();
+  }
+
+  // The browser's own sets too: the guests are sent the one picked.
   private playable(id: unknown): id is string {
-    return hasSet(id) && (this.solo || !isBrowserSet(id));
+    return hasSet(id);
+  }
+
+  // Back to the lobby if the match's set is gone or has a different number of
+  // holes now (a browser set edited or deleted since).
+  private stillPlayable(m: Match | null): Match | null {
+    const keys = m && this.playable(m.setId) ? holeKeys(m.setId) : [];
+    return m && m.holes.length === keys.length && m.holes.every((k, i) => k === keys[i]) ? m : null;
+  }
+
+  // The picked set, for guests, when it's one only this browser has.
+  private setMessage(): ToClient | null {
+    return isBrowserSet(this.setId) ? { t: 'set', id: this.setId, set: setFile(this.setId) } : null;
   }
 
   backToLobby() {
@@ -164,8 +178,8 @@ export class HostRoom {
   }
 
   snapshot(): HostSnapshot {
-    const { code, hostId, members, setId, match, game, solo } = this;
-    return { code, hostId, members, setId, match, game, solo };
+    const { code, hostId, members, setId, match, game } = this;
+    return { code, hostId, members, setId, match, game };
   }
 
   dispose() {
@@ -189,6 +203,7 @@ export class HostRoom {
     } else if (this.game) {
       // Hole in progress: watch only.
       this.spectators.add(link);
+      this.sendSet(link);
       link.send({ t: 'room', room: this.view() });
       return null;
     } else if (this.members.length >= MAX_PLAYERS) {
@@ -198,6 +213,8 @@ export class HostRoom {
       this.members.push({ id, name: this.uniqueName(cleanName(msg.name)) });
     }
     this.links.set(id, link);
+    // New, or back after a refresh that lost it.
+    this.sendSet(link);
     this.changed();
     return id;
   }
@@ -249,7 +266,19 @@ export class HostRoom {
     }
   }
 
+  private sendSet(link: Link) {
+    const msg = this.setMessage();
+    if (msg) link.send(msg);
+  }
+
   private changed() {
+    // A new set, or the same one edited: everyone gets it before the room.
+    const set = this.setMessage();
+    const sent = set ? JSON.stringify(set) : '';
+    if (sent !== this.sentSet) {
+      this.sentSet = sent;
+      if (set) this.broadcast(set);
+    }
     const room = this.view();
     this.broadcast({ t: 'room', room });
     this.events.change(room);
