@@ -21,8 +21,10 @@ const el = {
   joinForm: $<HTMLFormElement>('join-form'),
   code: $<HTMLInputElement>('code'),
   join: $<HTMLButtonElement>('join'),
-  or: $('or'),
-  orSolo: $('or-solo'),
+  soloBox: $('solo-box'),
+  multiTitle: $('multi-title'),
+  hostNote: $('host-note'),
+  hostOr: $('host-or'),
   create: $<HTMLButtonElement>('create'),
   solo: $<HTMLButtonElement>('solo'),
   connecting: $('connecting'),
@@ -139,7 +141,9 @@ function render() {
   el.actions.hidden = s.status === 'connecting';
   el.error.hidden = s.status !== 'error';
   el.error.textContent = s.status === 'error' ? s.message : '';
-  el.create.hidden = el.or.hidden = el.solo.hidden = el.orSolo.hidden = !!linkCode;
+  // From an invite link: just the code to join.
+  el.create.hidden = el.hostOr.hidden = el.hostNote.hidden = el.soloBox.hidden = !!linkCode;
+  el.multiTitle.textContent = linkCode ? 'JOIN A ROOM' : 'MULTIPLAYER';
 
   el.lobby.hidden = !inRoom || !!game;
   if (!game || game.phase !== 'over') {
