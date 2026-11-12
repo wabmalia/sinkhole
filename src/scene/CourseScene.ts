@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { balls, canPlace, current, launch, teeSpot, type Game } from '../engine/game';
 import { atRest, step, type PhysicsEvent } from '../engine/physics';
-import { swayAt, type Shot } from '../engine/shot';
+import { swayAt, swayCycle, swayOf, type Shot } from '../engine/shot';
 import { clamp, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { courseOf, DEFAULT_HOLE, holeOf } from '../sets';
 import { bounds } from '../holes/types';
@@ -48,9 +48,11 @@ export class CourseScene extends Phaser.Scene {
   private aim = { angle: -Math.PI / 2, power: 0.4 };
   private remoteAim: Aim | null = null;
   private lastAimSent = 0;
-  // The sway restarts from zero whenever the aim stops changing, so the line
-  // never jumps: from here for my aim, and from the last update for others'.
-  private swaySince = 0;
+  // Where my aim is in its swing (in whole swings). It never stops or starts
+  // over, even while the aim is being changed: otherwise nudging the aim
+  // right before SHOOT would fire it dead straight. Others' aim swings from
+  // their last update.
+  private swayPhase = 0;
   private remoteAimAt = 0;
   private aimDirty = false;
   private introSeen = false;            // how to shoot, on a set's first hole
@@ -192,7 +194,8 @@ export class CourseScene extends Phaser.Scene {
   }
 
   private beginTurn(g: Game) {
-    this.swaySince = this.time.now;
+    // From a random point in the swing, so a shot fired at once isn't straight.
+    this.swayPhase = Math.random();
     this.sent = false;
     this.remoteAim = null;
     if (g.phase !== 'aim') return;
@@ -236,7 +239,7 @@ export class CourseScene extends Phaser.Scene {
 
   private press() {
     const g = this.shown;
-    // Not mid-drag: the aim isn't swaying then, so it would be a free shot.
+    // Not mid-drag: the shot fires from a settled aim.
     if (!g || !this.myTurn() || this.drag) return;
     // Fires at once, wherever the swaying aim points right now.
     const a = this.aim;
@@ -303,14 +306,13 @@ export class CourseScene extends Phaser.Scene {
   }
 
   private endDrag() {
-    if (this.drag) this.swaySince = this.time.now;
     this.drag = null;
   }
 
-  // How far the aim has swayed off (radians). None while the aim is being
-  // set (dragging, arrow keys, or for others while updates keep arriving).
+  // How far the aim has swayed off (radians). Mine always swings; others'
+  // holds still while their updates keep arriving.
   private sway(time: number, mine: boolean, power: number): number {
-    if (mine) return this.drag ? 0 : swayAt((time - this.swaySince) / 1000, power);
+    if (mine) return swayOf(this.swayPhase);
     const still = time - this.remoteAimAt - REMOTE_STILL_MS;
     return still <= 0 ? 0 : swayAt(still / 1000, power);
   }
@@ -329,7 +331,6 @@ export class CourseScene extends Phaser.Scene {
     }
     if (changed) {
       this.aimDirty = true;
-      this.swaySince = this.time.now;
       this.refresh();
     }
   }
@@ -346,6 +347,9 @@ export class CourseScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     const g = this.shown;
+    // The swing keeps going at the speed the power sets; adding up the phase,
+    // rather than timing from a start, keeps it smooth when the power changes.
+    this.swayPhase = (this.swayPhase + delta / 1000 / swayCycle(this.aim.power)) % 1;
     if (g) {
       this.keyboardAim();
       this.sendAim(time);
