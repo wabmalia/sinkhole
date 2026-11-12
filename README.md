@@ -17,10 +17,11 @@ npm run check    # type check
 ## Playing
 
 Drag anywhere the way you want to shoot, further for harder (or arrow keys,
-shift for fine steps); the power shows by the arrow. Before your first shot
-you can drag your ball around the tee mat. The aim sways a couple of degrees either side, faster on harder
-shots, and SHOOT (the button by your ball, or space) fires wherever it points
-at that moment.
+shift for fine steps); the power shows by the arrow. While your ball is on
+the tee mat you can drag it around, and balls pass through each other there.
+The aim sways a couple of degrees either side, faster on harder shots, and
+SHOOT (the button by your ball, or space) fires wherever it points at that
+moment.
 
 Rooms play a set of holes in a row. The host picks the set in the lobby; the
 podium button in game shows the scorecard, and after each hole everyone sees

@@ -61,7 +61,8 @@ const el = {
 };
 
 // An invite link (#/join/CODE) fills in the code and hides "host a room".
-const linkCode = location.hash.startsWith('#/join/') ? normalizeCode(location.hash.slice(7)) : '';
+const codeInLink = () => (location.hash.startsWith('#/join/') ? normalizeCode(location.hash.slice(7)) : '');
+let linkCode = codeInLink();
 
 export function setupScreens() {
   el.name.value = session.name;
@@ -119,6 +120,24 @@ export function setupScreens() {
     } catch {
       toast(url);
     }
+  });
+
+  // An invite link opened in a tab that already has the game: the browser
+  // only changes the hash, without reloading, so pick the code up now. Out of
+  // a solo game first; never out of a room with others, which a click on a
+  // link shouldn't end.
+  window.addEventListener('hashchange', () => {
+    if (session.status === 'room' && session.solo && codeInLink()) {
+      const code = codeInLink();
+      session.leave();
+      location.hash = `#/join/${code}`;
+      return;
+    }
+    if (session.status !== 'home' && session.status !== 'error') return;
+    linkCode = codeInLink();
+    if (linkCode) el.code.value = linkCode;
+    valid();
+    render();
   });
 
   session.listen({ change: render, toast });

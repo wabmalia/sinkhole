@@ -9,7 +9,7 @@ export interface Rect {
 }
 
 // A hole is a walled floor (an outline polygon), optional solid blocks inside
-// it, a tee mat where the first shot is placed, and the cup. On top of that,
+// it, a tee mat where the ball is placed, and the cup. On top of that,
 // optional elements that act on a rolling ball.
 export interface Hole {
   name: string;
@@ -132,7 +132,14 @@ export function bounds(points: Vec[]): Rect {
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
+// Is the point on the rect (edges included)? The ball is on the tee mat when
+// its centre is.
+export const onRect = (p: Vec, r: Rect): boolean => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+
 // What the physics needs from a hole.
 export function courseFrom(hole: Hole): Course {
-  return { walls: wallsOf(hole), cup: hole.cup, ramps: hole.ramps, rivers: hole.rivers, wells: hole.wells, portals: hole.portals };
+  return {
+    walls: wallsOf(hole), cup: hole.cup, tee: hole.tee,
+    ramps: hole.ramps, rivers: hole.rivers, wells: hole.wells, portals: hole.portals,
+  };
 }

@@ -1,4 +1,5 @@
 import { CONFIG, PLAYER_COLORS } from '../config';
+import { onRect } from '../holes/types';
 import { courseOf, holeOf } from '../sets';
 import { settle, shotVelocity, type Ball, type PhysicsEvent } from './physics';
 import type { Shot } from './shot';
@@ -23,7 +24,6 @@ export interface Player {
   color: number;
   strokes: number;
   ball: Ball | null;   // null until their turn first comes round
-  teedOff: boolean;    // first shot taken, so no more moving the ball by hand
   holed: boolean;
   pickedUp: boolean;   // ran out of strokes, or left
 }
@@ -55,7 +55,6 @@ export function createGame(
       color: PLAYER_COLORS[seat % PLAYER_COLORS.length]!,
       strokes: 0,
       ball: null,
-      teedOff: false,
       holed: false,
       pickedUp: false,
     };
@@ -72,9 +71,14 @@ export function balls(g: Game): Ball[] {
   return g.players.flatMap(p => (p.ball && !p.ball.sunk ? [p.ball] : []));
 }
 
-export const canPlace = (g: Game): boolean => g.phase === 'aim' && !current(g).teedOff;
+// A ball on the tee mat can be moved anywhere on it: before the first shot,
+// and again whenever a shot ends (or a ball goes back) on the mat.
+export function canPlace(g: Game): boolean {
+  const ball = current(g).ball;
+  return g.phase === 'aim' && !!ball && onRect(ball.pos, holeOf(g.holeId).tee);
+}
 
-// Before the first shot the ball can go anywhere on the tee mat.
+// Where a ball put down at `at` ends up: the nearest spot on the tee mat.
 export function teeSpot(g: Game, at: Vec): Vec {
   const r = CONFIG.ball.radius;
   const t = holeOf(g.holeId).tee;
@@ -105,7 +109,6 @@ export function play(g: Game, playerId: string, shot: Shot, at?: Vec): { game: G
   // A stroke, plus one each time the shooter's ball went back from a river or
   // a black hole. Balls knocked in by someone else go back for free.
   p.strokes += 1 + events.filter(e => e.type === 'reset' && e.ball === p.ball?.id).length;
-  p.teedOff = true;
   next.shots++;
   endShot(next);
   return { game: next, events };

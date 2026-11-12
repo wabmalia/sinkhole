@@ -46,20 +46,34 @@ describe('physics', () => {
     expect(events.some(e => e.type === 'ball')).toBe(true);
     expect(b.pos.y).toBeLessThan(500);
   });
+
+  it('balls pass through each other on the tee mat', () => {
+    // Tee mat: x 120-240, y 790-860.
+    const a = ball(140, 825, 1200, 0, 0);
+    const b = ball(180, 825, 0, 0, 1);
+    const events = settle(course, [a, b], 0.1);
+    expect(events.some(e => e.type === 'ball')).toBe(false);
+    expect(b.pos).toEqual({ x: 180, y: 825 });
+  });
 });
 
 describe('game', () => {
   const perfect = (power: number): Shot => ({ angle: UP, power });
   const members = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
 
-  it('only lets the ball be placed on the tee before the first shot', () => {
+  it('lets the ball be moved while it is on the tee mat', () => {
     let g = createGame('full-course/0', members(1));
     expect(canPlace(g)).toBe(true);
     const t = straight.tee;
     expect(teeSpot(g, { x: 0, y: 0 })).toEqual({ x: t.x + CONFIG.ball.radius, y: t.y + CONFIG.ball.radius });
-    g = play(g, 'p0', perfect(0.05), { x: 0, y: 0 }).game;
+    // A dribble that stays on the mat: it can still be moved.
+    g = play(g, 'p0', { angle: 0, power: 0 }, { x: 0, y: 0 }).game;
+    expect(g.players[0]!.ball!.pos.y).toBeGreaterThan(t.y);
+    expect(canPlace(g)).toBe(true);
+    // Off the mat: it plays from where it stopped.
+    g = play(g, 'p0', perfect(0.5)).game;
+    expect(g.players[0]!.ball!.pos.y).toBeLessThan(t.y);
     expect(canPlace(g)).toBe(false);
-    expect(g.players[0]!.ball!.pos.x).toBeLessThan(t.x + CONFIG.ball.radius + 1);
   });
 
   it('takes turns and refuses shots out of turn', () => {

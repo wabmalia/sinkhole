@@ -1,6 +1,6 @@
 import { CONFIG } from '../config';
 import { inside } from '../holes/format';
-import type { Portal, PortalColor, Ramp, Segment, Well } from '../holes/types';
+import { onRect, type Portal, type PortalColor, type Ramp, type Rect, type Segment, type Well } from '../holes/types';
 import { closestOnSegment, dist, dot, fromAngle, len, lerp, scale, sub, type Vec } from './vec';
 
 export interface Ball {
@@ -15,6 +15,7 @@ export interface Ball {
 export interface Course {
   walls: Segment[];
   cup: Vec;
+  tee: Rect;            // balls on the mat pass through each other
   ramps: Ramp[];
   rivers: Vec[][];
   wells: Well[];
@@ -79,8 +80,12 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
     }
   }
 
+  // Balls don't hit each other on the tee mat, so a ball left there never
+  // gets in the way of the next tee shot.
+  const onTee = (b: Ball) => onRect(b.pos, course.tee);
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
+      if (onTee(live[i]!) || onTee(live[j]!)) continue;
       const hit = collideBalls(live[i]!, live[j]!);
       if (hit >= 0) touching.add(live[i]!).add(live[j]!);
       if (hit > 0) {
