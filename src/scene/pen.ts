@@ -1,6 +1,6 @@
 import type { Vec } from '../engine/vec';
 import { inside } from '../holes/format';
-import type { Hole } from '../holes/types';
+import { solids, type Block } from '../holes/types';
 
 // What the course drawing needs to draw with. Phaser's Graphics already is
 // one (the game); the editor wraps its 2D canvas in one (editor/canvasPen.ts),
@@ -17,8 +17,10 @@ export interface Pen {
 }
 
 // Whether a point is on the floor: inside the outline, outside every block.
-export const onFloor = (hole: Pick<Hole, 'outline' | 'blocks'>) => (p: Vec) =>
-  inside(p, hole.outline) && !hole.blocks.some(b => inside(p, b));
+export const onFloor = (hole: { outline: Vec[]; blocks: Block[] }) => {
+  const blocks = solids(hole.blocks);
+  return (p: Vec) => inside(p, hole.outline) && !blocks.some(b => inside(p, b));
+};
 
 // A closed line, drawn only where it's on the floor: a ripple stops at the
 // walls. Where it crosses one, the crossing is found by halving.

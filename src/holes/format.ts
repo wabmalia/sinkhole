@@ -1,6 +1,6 @@
 import { CONFIG } from '../config';
 import { closestOnSegment, dist, inside, type Vec } from '../engine/vec';
-import { PORTAL_COLORS, wallLines, type Hole, type Portal, type PortalColor, type Ramp, type Rect, type Well } from './types';
+import { curveThrough, isRound, isSmooth, PORTAL_COLORS, solid as polygonOf, wallLines, type Block, type Hole, type Portal, type PortalColor, type Ramp, type Rect, type Round, type Smooth, type Well } from './types';
 
 // Holes are stored as JSON, written by the editor or by hand, and later sent
 // in by players. parseHole is the one way in: it reads untrusted data, checks
@@ -10,7 +10,8 @@ import { PORTAL_COLORS, wallLines, type Hole, type Portal, type PortalColor, typ
 //     "name": "Straight",
 //     "par": 2,
 //     "outline": [[0, 0], [360, 0], [360, 900], [0, 900]],
-//     "blocks": [[[150, 400], [210, 400], [180, 460]]],
+//     "blocks": [[[150, 400], [210, 400], [180, 460]], { "at": [100, 300], "radius": 12 },
+//                { "smooth": [[60, 500], [120, 520], [90, 580]] }],
 //     "tee": { "x": 120, "y": 790, "w": 120, "h": 70 },
 //     "cup": [180, 130],
 //     "ramps": [{ "area": [[0, 500], [360, 500], [360, 600], [0, 600]], "angle": 90, "strength": 300 }],
@@ -20,7 +21,9 @@ import { PORTAL_COLORS, wallLines, type Hole, type Portal, type PortalColor, typ
 //     "portals": [{ "color": "pink", "a": [60, 700], "b": [300, 200] }]
 //   }
 //
-// Ramps, rivers, mud, wells and portals are optional. A ramp may run over
+// A block is a polygon, round ({ at, radius }), or a smooth curve through
+// its corners ({ smooth: [...] }). Ramps, rivers, mud, wells
+// and portals are optional. A ramp may run over
 // the cup; nothing else that moves the ball may cover the cup or the tee.
 
 // Every hole fits this frame, so every hole shows at the same size in the game.
@@ -30,8 +33,9 @@ export const LIMITS = {
   name: 24,
   par: [2, 6],
   outlinePoints: 64,
-  blocks: 16,
+  blocks: 32,
   blockPoints: 32,
+  roundRadius: [6, 150],
   teeMin: 30,   // the mat is at least this wide and tall
   zones: 12,    // ramps, rivers and mud, each
   zonePoints: 32,
@@ -45,7 +49,7 @@ export interface HoleFile {
   name: string;
   par: number;
   outline: [number, number][];
-  blocks: [number, number][][];
+  blocks: ([number, number][] | { at: [number, number]; radius: number } | { smooth: [number, number][] })[];
   tee: Rect;
   cup: [number, number];
   ramps?: { area: [number, number][]; angle: number; strength: number }[];
@@ -77,9 +81,12 @@ export function parseHole(data: unknown): Parsed {
 
   const outline = polygon(data.outline, LIMITS.outlinePoints, 'outline', fail);
   const blocksRaw = Array.isArray(data.blocks) ? data.blocks : data.blocks === undefined ? [] : null;
-  if (!blocksRaw) fail('blocks: a list of polygons');
+  if (!blocksRaw) fail('blocks: a list of polygons and round blocks');
   if (blocksRaw && blocksRaw.length > LIMITS.blocks) fail(`blocks: at most ${LIMITS.blocks}`);
-  const blocks = (blocksRaw ?? []).slice(0, LIMITS.blocks).map((b, i) => polygon(b, LIMITS.blockPoints, `block ${i + 1}`, fail));
+  const blocks = (blocksRaw ?? []).slice(0, LIMITS.blocks).map((b, i) =>
+    isObject(b) && 'smooth' in b ? smooth(b.smooth, `block ${i + 1}`, fail)
+      : isObject(b) ? round(b, `block ${i + 1}`, fail)
+        : polygon(b, LIMITS.blockPoints, `block ${i + 1}`, fail));
   const tee = rect(data.tee, fail);
   const cup = point(data.cup) ?? fail('cup: an [x, y] point');
 
@@ -90,9 +97,10 @@ export function parseHole(data: unknown): Parsed {
   const portals = list(data.portals, PORTAL_COLORS.length, 'portals', fail).map((p, i) => portal(p, `portal pair ${i + 1}`, fail));
 
   if (errors.length || !outline || !tee || !cup) return { hole: null, errors };
-  const solid = blocks as Vec[][];
+  const shapes = blocks as Block[];
+  const solid = shapes.map(polygonOf);
   const hole: Hole = {
-    name, par: par as number, outline, blocks: solid, tee, cup,
+    name, par: par as number, outline, blocks: shapes, tee, cup,
     ramps: ramps as Ramp[], rivers: rivers as Vec[][], mud: mud as Vec[][], wells: wells as Well[], portals: portals as Portal[],
   };
 
@@ -168,7 +176,7 @@ export function holeToJson(h: Hole): string {
     name: h.name,
     par: h.par,
     outline: h.outline.map(pair),
-    blocks: h.blocks.map(b => b.map(pair)),
+    blocks: h.blocks.map(b => (isRound(b) ? { at: pair(b.at), radius: b.radius } : isSmooth(b) ? { smooth: b.smooth.map(pair) } : b.map(pair))),
     tee: h.tee,
     cup: pair(h.cup),
   };
@@ -219,6 +227,20 @@ function list(v: unknown, max: number, what: string, fail: Fail): unknown[] {
 
 const between = (v: unknown, [lo, hi]: readonly [number, number]) => num(v) && v >= lo && v <= hi;
 
+function round(v: Record<string, unknown>, what: string, fail: Fail): Round | null {
+  const at = point(v.at);
+  if (!at) return fail(`${what}: at, an [x, y] point`);
+  if (!between(v.radius, LIMITS.roundRadius)) return fail(`${what}: radius from ${LIMITS.roundRadius.join(' to ')}`);
+  return { at, radius: v.radius as number };
+}
+
+function smooth(v: unknown, what: string, fail: Fail): Smooth | null {
+  const corners = polygon(v, LIMITS.blockPoints, what, fail);
+  if (!corners) return null;
+  if (!simple(curveThrough(corners))) return fail(`${what}: its curve crosses itself; spread the corners out`);
+  return { smooth: corners };
+}
+
 function ramp(v: unknown, what: string, fail: Fail): Ramp | null {
   if (!isObject(v)) return fail(`${what}: { area, angle, strength }`);
   const area = polygon(v.area, LIMITS.zonePoints, what, fail);
@@ -253,6 +275,45 @@ function rect(v: unknown, fail: Fail): Rect | null {
     return fail(`tee: inside the ${FRAME.w} × ${FRAME.h} frame`);
   }
   return r;
+}
+
+// --- Tidying ----------------------------------------------------------------
+
+// Corners that don't change a shape: one in the middle of a straight side, a
+// spike that doubles back along it, or a repeat of its neighbour. The editor
+// drops them when a set is saved. A shape keeps at least three corners.
+export function tidyPolygon(poly: Vec[]): Vec[] {
+  const out = [...poly];
+  for (let i = 0; out.length > 3 && i < out.length; ) {
+    const a = out[(i + out.length - 1) % out.length]!;
+    const p = out[i]!;
+    const b = out[(i + 1) % out.length]!;
+    const ab = dist(a, b);
+    // How far the corner sits off the line through its neighbours.
+    const off = ab < 1e-9 ? dist(a, p) : Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / ab;
+    if (off < 0.5 || dist(a, p) < 1e-9) {
+      out.splice(i, 1);
+      i = Math.max(0, i - 1);
+    } else i++;
+  }
+  return out;
+}
+
+// Every shape in a hole file, tidied; and how many corners went.
+export function tidyHoleFile(f: Partial<HoleFile>): { file: Partial<HoleFile>; removed: number } {
+  let removed = 0;
+  const tidy = (poly: [number, number][]) => {
+    const t = tidyPolygon(poly.map(([x, y]) => ({ x, y })));
+    removed += poly.length - t.length;
+    return t.map(pair);
+  };
+  const file = { ...f };
+  if (f.outline) file.outline = tidy(f.outline);
+  if (f.blocks) file.blocks = f.blocks.map(b => (Array.isArray(b) ? tidy(b) : b));
+  if (f.ramps) file.ramps = f.ramps.map(r => ({ ...r, area: tidy(r.area) }));
+  if (f.rivers) file.rivers = f.rivers.map(tidy);
+  if (f.mud) file.mud = f.mud.map(tidy);
+  return { file, removed };
 }
 
 // --- Geometry -------------------------------------------------------------

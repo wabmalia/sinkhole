@@ -1,4 +1,4 @@
-import type { HoleFile } from '../holes/format';
+import { tidyHoleFile, type HoleFile } from '../holes/format';
 import { browserSets, deleteBrowserSet, saveBrowserSet } from '../sets/browser';
 import { DEFAULT_SET, parseSet, setToJson, validSetId, type HoleSet } from '../sets/format';
 import { parseHole } from '../holes/format';
@@ -42,6 +42,8 @@ export interface SetsHost {
   rendered(): void;
   // A hole was picked to work on.
   picked(): void;
+  // Saving tidied the open hole: here it is.
+  tidied(hole: HoleDraft): void;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -281,22 +283,40 @@ export function setupSets(host: SetsHost) {
 
   // --- Saving ------------------------------------------------------------------
 
+  // Before saving: drop corners that don't change a shape, in every hole.
+  // Only once the set passes, so a failed save leaves the work as it was.
+  // Says how many went, for the status line.
+  function saving(): { done: HoleSet | null; trimmed: string } {
+    if (!checked().set) return { done: null, trimmed: '' };
+    let total = 0;
+    set.holes = set.holes.map((h, i) => {
+      const { file, removed } = tidyHoleFile(h);
+      if (!removed) return h;
+      total += removed;
+      if (i === at) host.tidied(file);
+      return file;
+    });
+    if (total) keep();
+    const trimmed = total ? ` Trimmed ${total} corner${total === 1 ? '' : 's'} on straight sides.` : '';
+    return { done: checked().set, trimmed };
+  }
+
   const same = (from: Source) => set.origin?.from === from && set.origin.id === set.id;
 
   el.save.addEventListener('click', () => {
-    const { set: done } = checked();
+    const { done, trimmed } = saving();
     if (!done) return;
     if (!same('browser') && set.id in browserSets() && !confirm(`Replace ${set.id}, already saved in this browser?`)) return;
     if (!saveBrowserSet(set.id, done)) return status('Not saved: this browser has storage off or full.');
     set.origin = { from: 'browser', id: set.id };
     dirty = false;
-    status(`Saved in this browser as ${set.id}. PLAY SOLO lists it.`);
+    status(`Saved in this browser as ${set.id}. PLAY SOLO lists it.${trimmed}`);
     render();
     void listSets();
   });
 
   el.download.addEventListener('click', () => {
-    const { set: done } = checked();
+    const { done, trimmed } = saving();
     if (!done) return;
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([setToJson(done)], { type: 'application/json' }));
@@ -304,12 +324,12 @@ export function setupSets(host: SetsHost) {
     link.click();
     URL.revokeObjectURL(link.href);
     dirty = false;
-    status(`Downloaded ${set.id}.json. In src/sets/ it's part of the game.`);
+    status(`Downloaded ${set.id}.json. In src/sets/ it's part of the game.${trimmed}`);
   });
 
   el.repo.hidden = !LOCAL;
   el.repo.addEventListener('click', async () => {
-    const { set: done } = checked();
+    const { done, trimmed } = saving();
     if (!done) return;
     if (!same('game') && repoIds.includes(set.id) && !confirm(`Replace src/sets/${set.id}.json?`)) return;
     const res = await fetch(`/__sets/${set.id}`, {
@@ -321,7 +341,7 @@ export function setupSets(host: SetsHost) {
     if (!res.ok) return status(`Not saved: ${(body.errors ?? [String(res.status)]).join('; ')}`);
     set.origin = { from: 'game', id: set.id };
     dirty = false;
-    status(`Saved to ${body.saved}. The game and the tests pick it up from there.`);
+    status(`Saved to ${body.saved}. The game and the tests pick it up from there.${trimmed}`);
     render();
     void listSets();
   });

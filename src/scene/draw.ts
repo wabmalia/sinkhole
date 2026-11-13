@@ -1,6 +1,6 @@
 import { COLORS, CONFIG } from '../config';
 import { dist, type Vec } from '../engine/vec';
-import { bounds, wallLines, type Hole, type Rect } from '../holes/types';
+import { bounds, solids, wallLines, type Hole, type Rect } from '../holes/types';
 import { onFloor, onlyOn, type Pen } from './pen';
 
 // The parts of a hole that never move. The game draws them all once per
@@ -34,13 +34,13 @@ export function drawCourse(g: Pen, hole: Hole) {
   }
 
   drawZones(g, hole);
-  for (const block of hole.blocks) {
+  for (const block of solids(hole.blocks)) {
     g.fillStyle(COLORS.bg, 1);
     g.fillPoints(block, true);
   }
   drawTee(g, hole.tee);
   drawCup(g, hole.cup);
-  drawWalls(g, hole.outline, hole.blocks);
+  drawWalls(g, hole.outline, solids(hole.blocks));
 }
 
 // Rivers, mud and ramps sit on the floor, and each well's reach is a faint ring,

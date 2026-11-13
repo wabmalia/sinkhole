@@ -1,7 +1,7 @@
 import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { dist, fromAngle, type Vec } from '../engine/vec';
 import { inside } from '../holes/format';
-import { bounds, wallLines, type Hole } from '../holes/types';
+import { bounds, solids, wallLines, type Hole } from '../holes/types';
 import { onFloor, onlyOn, type Pen } from './pen';
 
 // The moving parts of a hole: light running along the walls, ramp chevrons,
@@ -68,7 +68,7 @@ const hash = (n: number) => {
 };
 
 export function layout(hole: Pick<Hole, 'outline' | 'blocks' | 'ramps' | 'rivers' | 'mud'>): Layout {
-  const walls = wallLines(hole.outline, hole.blocks).map(line => {
+  const walls = wallLines(hole.outline, solids(hole.blocks)).map(line => {
     const at = [0];
     for (let i = 1; i < line.length; i++) at.push(at[i - 1]! + dist(line[i - 1]!, line[i]!));
     const closed = line.length > 3 && dist(line[0]!, line[line.length - 1]!) < 1e-6;

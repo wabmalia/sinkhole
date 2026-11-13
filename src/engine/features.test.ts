@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { courseOf } from '../sets';
+import { courseOf, holeOf } from '../sets';
+import { courseFrom } from '../holes/types';
 import { settle, step, type Ball, type Course } from './physics';
 
 // The hole elements on an open 360 × 900 floor, one at a time.
@@ -144,5 +145,15 @@ describe('portals', () => {
     const b = ball(180, 640, 0, -400);
     const events = settle(portals, [b]);
     expect(events.filter(e => e.type === 'portal')).toHaveLength(1);
+  });
+});
+
+describe('round blocks', () => {
+  it('bounce a ball off to the side it hit', () => {
+    const course = courseFrom({ ...holeOf('full-course/0'), blocks: [{ at: { x: 180, y: 450 }, radius: 20 }] });
+    const b = ball(185, 700, 0, -900);
+    const events = settle({ ...course, cup: { x: -100, y: -100 } }, [b], 0.5);
+    expect(events.some(e => e.type === 'wall')).toBe(true);
+    expect(b.pos.x).toBeGreaterThan(185);
   });
 });

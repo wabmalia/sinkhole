@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { holeToJson, parseHole } from './format';
-import { wallLines } from './types';
+import { holeToJson, parseHole, tidyHoleFile, tidyPolygon } from './format';
+import { curveThrough, solid, wallLines } from './types';
 
 const good = {
   name: 'Test',
@@ -92,5 +92,80 @@ describe('parseHole', () => {
     expect(errorsOf({ par: 1.5 })).not.toEqual([]);
     expect(parseHole('nope').errors).toEqual(['not a JSON object']);
     expect(parseHole(null).errors).toEqual(['not a JSON object']);
+  });
+});
+
+describe('round blocks', () => {
+  const peg = (x: number, y: number, radius = 10) => ({ at: [x, y], radius });
+
+  it('accepts them next to cornered ones, and survives a round trip', () => {
+    const { hole, errors } = parseHole({ ...good, blocks: [...good.blocks, peg(100, 300), peg(260, 600, 20)] });
+    expect(errors).toEqual([]);
+    expect(hole!.blocks[1]).toEqual({ at: { x: 100, y: 300 }, radius: 10 });
+    expect(parseHole(JSON.parse(holeToJson(hole!))).hole).toEqual(hole);
+  });
+
+  it('checks their size and place', () => {
+    expect(errorsOf({ blocks: [peg(100, 300, 2)] })).toContain('block 1: radius from 6 to 150');
+    expect(errorsOf({ blocks: [{ at: [100] , radius: 10 }] })).toContain('block 1: at, an [x, y] point');
+    expect(errorsOf({ blocks: [peg(180, 140, 20)] })).toContain('cup: must be on the floor, clear of the walls');
+  });
+
+  it('allow up to 32 blocks, enough for a plinko board', () => {
+    const pegs = (n: number) => Array.from({ length: n }, (_, i) => peg(40 + (i % 8) * 40, 250 + Math.floor(i / 8) * 80, 8));
+    expect(errorsOf({ blocks: pegs(32) })).toEqual([]);
+    expect(errorsOf({ blocks: pegs(33) })).toContain('blocks: at most 32');
+  });
+
+  it('make a closed round wall', () => {
+    const lines = wallLines(good.outline.map(([x, y]) => ({ x: x!, y: y! })), [solid({ at: { x: 180, y: 450 }, radius: 20 })]);
+    expect(lines).toHaveLength(2);
+  });
+});
+
+describe('tidying', () => {
+  const v = (pts: number[][]) => pts.map(([x, y]) => ({ x: x!, y: y! }));
+
+  it('drops corners in the middle of a straight side', () => {
+    expect(tidyPolygon(v([[0, 0], [100, 0], [200, 0], [200, 100], [0, 100], [0, 50]])))
+      .toEqual(expect.arrayContaining(v([[0, 0], [200, 0], [200, 100], [0, 100]])));
+    expect(tidyPolygon(v([[0, 0], [100, 0], [200, 0], [200, 100], [0, 100], [0, 50]]))).toHaveLength(4);
+  });
+
+  it('drops a spike that doubles back, and repeated corners', () => {
+    expect(tidyPolygon(v([[0, 0], [200, 0], [300, 0], [200, 0], [200, 100], [0, 100]]))).toHaveLength(4);
+    expect(tidyPolygon(v([[0, 0], [0, 0], [200, 0], [200, 100], [0, 100]]))).toHaveLength(4);
+  });
+
+  it('keeps real corners, and leaves round blocks alone', () => {
+    const tri = v([[0, 0], [200, 0], [100, 100]]);
+    expect(tidyPolygon(tri)).toEqual(tri);
+    const { file, removed } = tidyHoleFile({ ...good, blocks: [...good.blocks, { at: [100, 300], radius: 10 }] } as never);
+    expect(removed).toBe(0);
+    expect(file.blocks![1]).toEqual({ at: [100, 300], radius: 10 });
+  });
+});
+
+describe('smooth blocks', () => {
+  const corners = [[150, 400], [210, 400], [210, 460], [150, 460]];
+
+  it('curve through every corner they were drawn with', () => {
+    const pts = corners.map(([x, y]) => ({ x: x!, y: y! }));
+    const curve = curveThrough(pts);
+    for (const p of pts) expect(curve).toContainEqual(p);
+    // Round, not square: the middle of a side bulges out past the straight line.
+    expect(Math.min(...curve.map(p => p.y))).toBeLessThan(400);
+  });
+
+  it('survive a round trip, keeping their corners', () => {
+    const { hole, errors } = parseHole({ ...good, blocks: [{ smooth: corners }] });
+    expect(errors).toEqual([]);
+    expect(hole!.blocks[0]).toEqual({ smooth: corners.map(([x, y]) => ({ x, y })) });
+    expect(parseHole(JSON.parse(holeToJson(hole!))).hole).toEqual(hole);
+  });
+
+  it('are left alone by tidying, whose corners shape the curve', () => {
+    const { removed } = tidyHoleFile({ ...good, blocks: [{ smooth: [[150, 400], [180, 400], [210, 400], [180, 460]] }] } as never);
+    expect(removed).toBe(0);
   });
 });

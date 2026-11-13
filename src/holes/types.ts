@@ -15,7 +15,7 @@ export interface Hole {
   name: string;
   par: number;
   outline: Vec[];       // clockwise or not, closed implicitly
-  blocks: Vec[][];      // solid polygons inside the outline
+  blocks: Block[];      // solid shapes inside the outline: polygons or round
   tee: Rect;
   cup: Vec;
   ramps: Ramp[];
@@ -23,6 +23,71 @@ export interface Hole {
   mud: Vec[][];         // slow the ball almost as hard, but it stays where it stops
   wells: Well[];
   portals: Portal[];
+}
+
+// A round block: a post, a peg, a pillar.
+export interface Round {
+  at: Vec;
+  radius: number;
+}
+
+// A cornered block made smooth: a curve through its corners.
+export interface Smooth {
+  smooth: Vec[];
+}
+
+export type Block = Vec[] | Round | Smooth;
+
+export const isRound = (b: Block): b is Round => !Array.isArray(b) && 'radius' in b;
+export const isSmooth = (b: Block): b is Smooth => !Array.isArray(b) && 'smooth' in b;
+// The corners a block was drawn with, cornered or smooth; none for a circle.
+export const cornersOf = (b: Block): Vec[] | null => (Array.isArray(b) ? b : isSmooth(b) ? b.smooth : null);
+
+// The walls and the physics only know polygons: a round block is a polygon
+// with enough sides that it plays and looks round (bigger ones get more), a
+// smooth one a curve through its corners.
+export function solid(b: Block): Vec[] {
+  if (Array.isArray(b)) return b;
+  if (isSmooth(b)) return curveThrough(b.smooth);
+  const n = Math.min(40, Math.max(16, Math.round(b.radius / 2)));
+  return Array.from({ length: n }, (_, k) => {
+    const a = (k / n) * Math.PI * 2;
+    return { x: b.at.x + Math.cos(a) * b.radius, y: b.at.y + Math.sin(a) * b.radius };
+  });
+}
+
+export const solids = (blocks: Block[]): Vec[][] => blocks.map(solid);
+
+// A closed curve through every corner (centripetal Catmull-Rom, which
+// doesn't loop or overshoot between corners that are close together), in
+// short straight steps, at most about 96 of them.
+export function curveThrough(pts: Vec[]): Vec[] {
+  const n = pts.length;
+  const out: Vec[] = [];
+  const most = Math.max(2, Math.floor(96 / n));
+  const knot = (a: Vec, b: Vec) => Math.max(1e-3, Math.sqrt(Math.hypot(b.x - a.x, b.y - a.y)));
+  const mix = (a: Vec, b: Vec, ta: number, tb: number, t: number): Vec => {
+    const k = (t - ta) / (tb - ta);
+    return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+  };
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i + n - 1) % n]!;
+    const p1 = pts[i]!;
+    const p2 = pts[(i + 1) % n]!;
+    const p3 = pts[(i + 2) % n]!;
+    const t1 = knot(p0, p1);
+    const t2 = t1 + knot(p1, p2);
+    const t3 = t2 + knot(p2, p3);
+    const steps = Math.min(most, Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 8)));
+    for (let s = 0; s < steps; s++) {
+      const t = t1 + ((t2 - t1) * s) / steps;
+      const a1 = mix(p0, p1, 0, t1, t);
+      const a2 = mix(p1, p2, t1, t2, t);
+      const a3 = mix(p2, p3, t2, t3, t);
+      out.push(mix(mix(a1, a2, 0, t2, t), mix(a2, a3, t1, t3, t), t1, t2, t));
+    }
+  }
+  return out;
 }
 
 // Sloping ground: pushes the ball downhill, towards `angle` (degrees, 0 is
@@ -69,12 +134,19 @@ export function wallLines(outline: Vec[], blocks: Vec[][]): Vec[][] {
   const shapes = [outline, ...blocks];
   const lines: Vec[][] = [];
   const floor = (p: Vec) => inside(p, outline) && !blocks.some(b => inside(p, b));
+  // Each shape's box, so an edge skips the shapes nowhere near it: with many
+  // small blocks (pegs) that's most of them.
+  const boxes = shapes.map(bounds);
   shapes.forEach((poly, k) => {
+    const near = (a: Vec, b: Vec) => (o: Rect) =>
+      Math.max(a.x, b.x) >= o.x && Math.min(a.x, b.x) <= o.x + o.w && Math.max(a.y, b.y) >= o.y && Math.min(a.y, b.y) <= o.y + o.h;
     const others = shapes.filter((_, j) => j !== k);
+    const otherBoxes = boxes.filter((_, j) => j !== k);
     const pieces: Vec[][] = [];
     poly.forEach((a, i) => {
       const b = poly[(i + 1) % poly.length]!;
-      const cuts = [0, 1, ...others.flatMap(o => o.map((c, j) => crossAt(a, b, c, o[(j + 1) % o.length]!)))]
+      const hit = near(a, b);
+      const cuts = [0, 1, ...others.flatMap((o, n) => (hit(otherBoxes[n]!) ? o.map((c, j) => crossAt(a, b, c, o[(j + 1) % o.length]!)) : []))]
         .filter((t): t is number => t !== null)
         .sort((x, y) => x - y);
       for (let n = 0; n + 1 < cuts.length; n++) {
@@ -108,7 +180,7 @@ export function wallLines(outline: Vec[], blocks: Vec[][]): Vec[][] {
 
 // Every wall segment the physics checks.
 export function wallsOf(hole: Hole): Segment[] {
-  return wallLines(hole.outline, hole.blocks).flatMap(line => line.slice(1).map((b, i) => ({ a: line[i]!, b })));
+  return wallLines(hole.outline, solids(hole.blocks)).flatMap(line => line.slice(1).map((b, i) => ({ a: line[i]!, b })));
 }
 
 const same = (p: Vec, q: Vec) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;

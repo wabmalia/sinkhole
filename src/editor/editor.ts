@@ -3,7 +3,7 @@ import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { atRest, step, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { FRAME, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
-import { courseFrom, PORTAL_COLORS, type Portal, type PortalColor, type Rect, type Well } from '../holes/types';
+import { cornersOf, courseFrom, isRound, isSmooth, PORTAL_COLORS, solid, solids, type Block, type Portal, type PortalColor, type Rect, type Round, type Well } from '../holes/types';
 import { drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
 import { drawMoving, layout, type Layout } from '../scene/elements';
 import { canvasPen } from './canvasPen';
@@ -30,7 +30,7 @@ interface Draft {
   name: string;
   par: number;
   outline: Vec[];
-  blocks: Vec[][];
+  blocks: Block[];
   tee: Rect | null;
   cup: Vec | null;
   ramps: DraftRamp[];
@@ -57,7 +57,8 @@ type Target =
   | { kind: 'ramp-dir'; i: number }
   | { kind: 'well'; i: number }
   | { kind: 'well-size'; i: number }
-  | { kind: 'portal'; i: number; end: 'a' | 'b' };
+  | { kind: 'portal'; i: number; end: 'a' | 'b' }
+  | { kind: 'round-size'; i: number };
 // What the settings card next to it shows.
 type Selection =
   | { kind: 'ramp' | 'well' | 'portal'; i: number }
@@ -75,7 +76,7 @@ const ARROW = 40;         // length of a ramp's direction arrow, hole units
 const HELP: Record<Tool, string> = {
   move: 'Drag corners, sides, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river, mud or corner for its settings, beside it. Double-tap a wall to add a corner.',
   outline: 'Tap the corners of the outer wall, then the first corner again or DONE to close it: it replaces the old outline.',
-  block: 'Tap the corners of a solid block, then the first corner again or DONE.',
+  block: 'Tap the corners of a solid block, then the first corner again or DONE. Or press and drag for a round one: from its centre out to its edge. MAKE IT ROUND on its settings bends it into a smooth curve through its corners, which you can still drag.',
   tee: 'Drag out the tee mat, where players place their first shot.',
   cup: 'Tap where the cup goes.',
   ramp: 'Tap the corners of a ramp, then close it. Drag its arrow to point downhill; tap it to set how steep it is. A ramp may run over the cup, but not the tee.',
@@ -147,7 +148,10 @@ let hover: Target | null = null;
 let selected: Selection = null;
 let free = false;                  // Shift: no snapping
 // `at` is where it started on screen: nothing moves until the pointer has.
-let drag: { target: Target; from: Vec; at: Vec; moved: boolean; tee: Rect | null; zone: Vec[]; } | null = null;
+let drag: { target: Target; from: Vec; at: Vec; moved: boolean; tee: Rect | null; zone: Vec[]; round: Round | null } | null = null;
+// A round block being dragged out with the block tool: `at` its centre, `screen`
+// where the press began. Nothing is made until the pointer has moved.
+let roundFrom: { at: Vec; screen: Vec; made: boolean } | null = null;
 let teeFrom: Vec | null = null;
 const history: string[] = [];
 const view = { scale: 1, ox: 0, oy: 0 };
@@ -178,7 +182,7 @@ function toFile(d: Draft): Partial<HoleFile> {
     name: d.name,
     par: d.par,
     outline: d.outline.map(pair),
-    blocks: d.blocks.map(b => b.map(pair)),
+    blocks: d.blocks.map(b => (isRound(b) ? { at: pair(b.at), radius: b.radius } : isSmooth(b) ? { smooth: b.smooth.map(pair) } : b.map(pair))),
     ...(d.tee ? { tee: d.tee } : {}),
     ...(d.cup ? { cup: pair(d.cup) } : {}),
     ...(d.ramps.length ? { ramps: d.ramps.map(r => ({ area: r.area.map(pair), angle: r.angle, strength: r.strength })) } : {}),
@@ -202,7 +206,14 @@ function fromFile(data: unknown): Draft {
     name: typeof f.name === 'string' ? f.name : 'Untitled',
     par: n(f.par, 3),
     outline: poly(f.outline),
-    blocks: Array.isArray(f.blocks) ? f.blocks.map(poly) : [],
+    blocks: Array.isArray(f.blocks)
+      ? f.blocks.map((b): Block => {
+        const o = b as Record<string, unknown> | null;
+        if (o && !Array.isArray(o) && 'smooth' in o) return { smooth: poly(o.smooth) };
+        const at = o && !Array.isArray(o) ? vec(o.at) : null;
+        return at ? { at, radius: n(o!.radius, 15) } : poly(b);
+      })
+      : [],
     tee: t && [t.x, t.y, t.w, t.h].every(v => typeof v === 'number') ? { x: t.x, y: t.y, w: t.w, h: t.h } : null,
     cup: vec(f.cup),
     ramps: objs(f.ramps).map(r => ({ area: poly(r.area), angle: n(r.angle, 90), strength: n(r.strength, 300) })),
@@ -268,16 +279,38 @@ const arrowTip = (r: DraftRamp): Vec => {
   const d = fromAngle((r.angle * Math.PI) / 180, ARROW);
   return { x: c.x + d.x, y: c.y + d.y };
 };
-const ringHandle = (w: Well): Vec => ({ x: w.at.x + w.radius, y: w.at.y });
+const ringHandle = (w: { at: Vec; radius: number }): Vec => ({ x: w.at.x + w.radius, y: w.at.y });
+
+// A round block's radius with its edge at `edge`: in steps of 5, 1 with Shift.
+function roundRadius(at: Vec, edge: Vec): number {
+  const [lo, hi] = LIMITS.roundRadius;
+  const step = free ? 1 : 5;
+  return clamp(Math.round(dist(at, edge) / step) * step, lo, hi);
+}
+
+// Blocks' corners: every one, to drag; only cornered blocks' sides are
+// straight, to drag or add a corner to.
+const blockCorners = () => draft.blocks.map(cornersOf).filter((c): c is Vec[] => !!c);
+const cornered = (blocks: Block[]) => blocks.filter((b): b is Vec[] => Array.isArray(b));
+
+// Cornered to smooth, through the same corners, and back. A circle becomes
+// the square around it.
+function reshape(b: Block): Block {
+  if (Array.isArray(b)) return { smooth: b };
+  if (isSmooth(b)) return b.smooth;
+  const { at: c, radius: r } = b;
+  return [{ x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y - r }, { x: c.x + r, y: c.y + r }, { x: c.x - r, y: c.y + r }];
+}
 
 const zoneOf = (zone: Zone, i: number): Vec[] | undefined =>
-  zone === 'ramps' ? draft.ramps[i]?.area : draft[zone][i];
+  zone === 'ramps' ? draft.ramps[i]?.area : zone === 'blocks' ? (b => (b ? cornersOf(b) ?? undefined : undefined))(draft.blocks[i]) : draft[zone][i];
 
-// Every shape with corners to drag.
-const shapes = () => [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers, ...draft.mud];
+// Every shape with corners to drag; with `smooth`, smooth blocks' too, which
+// have no straight sides.
+const shapes = (smooth = false) => [draft.outline, ...(smooth ? blockCorners() : cornered(draft.blocks)), ...draft.ramps.map(r => r.area), ...draft.rivers, ...draft.mud];
 
 function hitAt(w: Vec): Target | null {
-  for (const poly of shapes()) {
+  for (const poly of shapes(true)) {
     const i = poly.findIndex(p => near(p, w));
     if (i >= 0) return { kind: 'vertex', poly, i };
   }
@@ -289,6 +322,7 @@ function hitAt(w: Vec): Target | null {
     if (dist(well.at, w) <= CONFIG.features.coreRadius + HIT / view.scale) return { kind: 'well', i };
     if (near(ringHandle(well), w)) return { kind: 'well-size', i };
   }
+  for (const [i, b] of draft.blocks.entries()) if (isRound(b) && near(ringHandle(b), w)) return { kind: 'round-size', i };
   for (const [i, r] of draft.ramps.entries()) if (near(arrowTip(r), w)) return { kind: 'ramp-dir', i };
   if (draft.cup && dist(draft.cup, w) <= CONFIG.cup.radius + HIT / view.scale) return { kind: 'cup' };
   const t = draft.tee;
@@ -299,7 +333,7 @@ function hitAt(w: Vec): Target | null {
   }
   if (t && w.x >= t.x && w.x <= t.x + t.w && w.y >= t.y && w.y <= t.y + t.h) return { kind: 'tee' };
   for (const zone of ['blocks', 'ramps', 'rivers', 'mud'] as const) {
-    const list = zone === 'ramps' ? draft.ramps.map(r => r.area) : draft[zone];
+    const list = zone === 'ramps' ? draft.ramps.map(r => r.area) : zone === 'blocks' ? solids(draft.blocks) : draft[zone];
     const i = list.findIndex(poly => inside(w, poly));
     if (i >= 0) return { kind: 'zone', zone, i };
   }
@@ -312,6 +346,7 @@ function selectionOf(t: Target): Selection {
   if (t.kind === 'zone') return { kind: 'zone', zone: t.zone as Plain, i: t.i };
   if (t.kind === 'well' || t.kind === 'well-size') return { kind: 'well', i: t.i };
   if (t.kind === 'portal') return { kind: 'portal', i: t.i };
+  if (t.kind === 'round-size') return { kind: 'zone', zone: 'blocks', i: t.i };
   if (t.kind === 'vertex') return { kind: 'corner', poly: t.poly, i: t.i };
   if (t.kind === 'edge') {
     // A side picks its shape, as a tap inside it would.
@@ -352,7 +387,12 @@ el.canvas.addEventListener('pointerdown', e => {
     remember();
     // A shape, or the shape a side belongs to, as it was when the drag began.
     const zone = target.kind === 'zone' ? zoneOf(target.zone, target.i) ?? [] : target.kind === 'edge' ? target.poly : [];
-    drag = { target, from: p, at: { x: e.offsetX, y: e.offsetY }, moved: false, tee: draft.tee && { ...draft.tee }, zone: zone.map(v => ({ ...v })) };
+    const block = target.kind === 'zone' && target.zone === 'blocks' ? draft.blocks[target.i] : undefined;
+    const round = block && isRound(block) ? { at: { ...block.at }, radius: block.radius } : null;
+    drag = { target, from: p, at: { x: e.offsetX, y: e.offsetY }, moved: false, tee: draft.tee && { ...draft.tee }, zone: zone.map(v => ({ ...v })), round };
+  } else if (tool === 'block' && !drawing.length) {
+    // A tap starts a cornered block; a drag makes a round one (see pointermove).
+    roundFrom = { at: p, screen: { x: e.offsetX, y: e.offsetY }, made: false };
   } else if (tool === 'outline' || tool === 'block' || tool === 'ramp' || tool === 'river' || tool === 'mud') {
     if (drawing.length >= 3 && near(drawing[0]!, raw)) return closeShape();
     if (!drawing.some(q => q.x === p.x && q.y === p.y)) drawing.push(p);
@@ -406,6 +446,20 @@ el.canvas.addEventListener('pointermove', e => {
     changed();
     return;
   }
+  if (roundFrom) {
+    if (!roundFrom.made && Math.hypot(e.offsetX - roundFrom.screen.x, e.offsetY - roundFrom.screen.y) > 8) {
+      remember();
+      draft.blocks.push({ at: roundFrom.at, radius: LIMITS.roundRadius[0] });
+      roundFrom.made = true;
+    }
+    const b = draft.blocks[draft.blocks.length - 1];
+    if (roundFrom.made && b && isRound(b)) {
+      b.radius = roundRadius(b.at, raw);
+      selected = { kind: 'zone', zone: 'blocks', i: draft.blocks.length - 1 };
+      changed();
+    }
+    return;
+  }
   if (teeFrom) {
     draft.tee = {
       x: Math.min(teeFrom.x, p.x),
@@ -444,8 +498,15 @@ function moveTarget(t: Target, p: Vec, raw: Vec) {
       if (drag.tee) draft.tee = { ...drag.tee, w: Math.max(SNAP, drag.tee.w + d.x), h: Math.max(SNAP, drag.tee.h + d.y) };
       break;
     case 'zone': {
+      const b = draft.blocks[t.i];
+      if (t.zone === 'blocks' && drag.round && b && isRound(b)) {
+        // In place: the settings card is editing this very block.
+        b.at = { x: drag.round.at.x + d.x, y: drag.round.at.y + d.y };
+        break;
+      }
       const moved = drag.zone.map(v => ({ x: v.x + d.x, y: v.y + d.y }));
       if (t.zone === 'ramps') draft.ramps[t.i]!.area = moved;
+      else if (t.zone === 'blocks' && b && isSmooth(b)) b.smooth = moved;
       else draft[t.zone][t.i] = moved;
       break;
     }
@@ -469,11 +530,22 @@ function moveTarget(t: Target, p: Vec, raw: Vec) {
     case 'portal':
       draft.portals[t.i]![t.end] = p;
       break;
+    case 'round-size': {
+      const b = draft.blocks[t.i];
+      if (b && isRound(b)) b.radius = roundRadius(b.at, raw);
+      break;
+    }
   }
 }
 
 el.canvas.addEventListener('pointerup', () => {
   if (tool === 'test') return testUp();
+  if (roundFrom) {
+    // Only a tap: the first corner of a cornered block.
+    if (!roundFrom.made) drawing.push(roundFrom.at);
+    roundFrom = null;
+    draw();
+  }
   if (teeFrom && draft.tee && (draft.tee.w === 0 || draft.tee.h === 0)) undo();
   drag = null;
   teeFrom = null;
@@ -516,6 +588,7 @@ function remove(t: Target | null) {
   else if (t.kind === 'ramp-dir') draft.ramps.splice(t.i, 1);
   else if (t.kind === 'well' || t.kind === 'well-size') draft.wells.splice(t.i, 1);
   else if (t.kind === 'portal') draft.portals.splice(t.i, 1);
+  else if (t.kind === 'round-size') draft.blocks.splice(t.i, 1);
   else return void history.pop();
   hover = null;
   selected = null;
@@ -533,7 +606,11 @@ function closeShape() {
   if (drawing.length < 3) return;
   remember();
   if (tool === 'outline') draft.outline = drawing;
-  else if (tool === 'block') draft.blocks.push(drawing);
+  else if (tool === 'block') {
+    // Its settings straight away, to make it round.
+    draft.blocks.push(drawing);
+    selected = { kind: 'zone', zone: 'blocks', i: draft.blocks.length - 1 };
+  }
   else if (tool === 'river') draft.rivers.push(drawing);
   else if (tool === 'mud') draft.mud.push(drawing);
   else if (tool === 'ramp') {
@@ -756,7 +833,7 @@ function renderProps() {
     // Same element: just follow drags on the canvas.
     for (const input of el.props.querySelectorAll<HTMLInputElement>('input[data-prop]')) {
       if (document.activeElement === input) continue;
-      const v = (ramp ?? well) as unknown as Record<string, number> | undefined;
+      const v = (ramp ?? well ?? (zone && isRound(zone) ? zone : undefined)) as unknown as Record<string, number> | undefined;
       if (v) input.value = String(v[input.dataset.prop!]);
       const out = input.nextElementSibling;
       if (out) out.textContent = input.value;
@@ -804,6 +881,25 @@ function renderProps() {
     rows.push(pick);
   } else if (zone && sel?.kind === 'zone') {
     title.textContent = PLAIN_NAME[sel.zone];
+    if (sel.zone === 'blocks') {
+      const i = sel.i;
+      if (isRound(zone)) {
+        const r = zone;
+        title.textContent = 'ROUND BLOCK';
+        rows.push(slider('SIZE', 'radius', r.radius, LIMITS.roundRadius, 1, v => (r.radius = v)));
+      }
+      const shape = document.createElement('button');
+      shape.type = 'button';
+      shape.textContent = Array.isArray(zone) ? 'MAKE IT ROUND' : 'MAKE IT CORNERED';
+      if (isSmooth(zone)) title.textContent = 'ROUND BLOCK';
+      shape.addEventListener('click', () => {
+        remember();
+        draft.blocks[i] = reshape(draft.blocks[i]!);
+        propsFor = '';
+        changed();
+      });
+      rows.push(shape);
+    }
   } else if (corner) {
     title.textContent = 'CORNER';
   }
@@ -844,7 +940,10 @@ function propsAnchor(): Vec | null {
   if (sel.kind === 'ramp') return draft.ramps[sel.i] ? centroid(draft.ramps[sel.i]!.area) : null;
   if (sel.kind === 'well') return draft.wells[sel.i]?.at ?? null;
   if (sel.kind === 'portal') return draft.portals[sel.i]?.a ?? null;
-  if (sel.kind === 'zone') return draft[sel.zone][sel.i] ? centroid(draft[sel.zone][sel.i]!) : null;
+  if (sel.kind === 'zone') {
+    const z = draft[sel.zone][sel.i];
+    return z ? (isRound(z) ? z.at : centroid(cornersOf(z)!)) : null;
+  }
   return sel.kind === 'corner' ? sel.poly[sel.i] ?? null : null;
 }
 
@@ -1106,7 +1205,7 @@ function paint() {
     ctx.fill();
   }
   ctx.fillStyle = C.bg;
-  for (const b of draft.blocks) {
+  for (const b of solids(draft.blocks)) {
     path(b);
     ctx.fill();
   }
@@ -1178,12 +1277,12 @@ function paint() {
   // Whole block outlines, faintly under the walls: the parts outside the course so they can still be grabbed.
   ctx.strokeStyle = C.gridBright;
   ctx.lineWidth = px;
-  for (const b of draft.blocks) {
+  for (const b of solids(draft.blocks)) {
     path(b);
     ctx.stroke();
   }
 
-  drawWalls(pen, draft.outline, draft.blocks);
+  drawWalls(pen, draft.outline, solids(draft.blocks));
   drawMoving(pen, moving(), lookOf(draft), performance.now());
 
   if (tool === 'test') drawTest(px);
@@ -1192,7 +1291,7 @@ function paint() {
   if (tool === 'move') {
     // The side under the pointer, ready to drag.
     if (hover?.kind === 'edge') line(hover.poly[hover.i]!, hover.poly[(hover.i + 1) % hover.poly.length]!, C.cup, 3 * px);
-    for (const poly of shapes()) {
+    for (const poly of shapes(true)) {
       poly.forEach((p, i) => {
         const on = hover?.kind === 'vertex' && hover.poly === poly && hover.i === i;
         handle(p, on ? 6 : 4, on ? C.cup : C.wall, px);
@@ -1202,6 +1301,11 @@ function paint() {
     if (t) handle({ x: t.x + t.w, y: t.y + t.h }, on('tee-size') ? 6 : 4, on('tee-size') ? C.cup : C.mat, px);
     draft.wells.forEach(w => handle(ringHandle(w), 4, w.kind === 'black' ? C.black : C.white, px));
     draft.ramps.forEach(r => handle(arrowTip(r), 4, C.ramp, px));
+    draft.blocks.forEach((b, i) => {
+      if (!isRound(b)) return;
+      const on = hover?.kind === 'round-size' && hover.i === i;
+      handle(ringHandle(b), on ? 6 : 4, on ? C.cup : C.wall, px);
+    });
   }
 
   // The shape being placed, with a line to the pointer.
@@ -1288,6 +1392,16 @@ const sets = setupSets({
     draw();
   },
   blank: () => toFile(blank()),
+  // Saving tidied the open hole: show it as saved, and let undo bring the
+  // corners back.
+  tidied(hole) {
+    remember();
+    draft = fromFile(hole);
+    drawing = [];
+    selected = null;
+    renderPanel();
+    draw();
+  },
   rendered: renderState,
   picked: () => openDrawer(false),
 });
