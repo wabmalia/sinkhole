@@ -3,7 +3,7 @@ import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { atRest, step, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { FRAME, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
-import { cornersOf, courseFrom, isRound, isSmooth, PORTAL_COLORS, solid, solids, type Block, type Portal, type PortalColor, type Rect, type Round, type Well } from '../holes/types';
+import { bounds, cornersOf, courseFrom, isRound, isSmooth, PORTAL_COLORS, solid, solids, type Block, type Portal, type PortalColor, type Rect, type Round, type Well } from '../holes/types';
 import { drawCup, drawTee, drawWalls, drawZones } from '../scene/draw';
 import { drawMoving, layout, type Layout } from '../scene/elements';
 import { canvasPen } from './canvasPen';
@@ -74,7 +74,7 @@ const HIT = matchMedia('(pointer: coarse)').matches ? 18 : 10;
 const ARROW = 40;         // length of a ramp's direction arrow, hole units
 
 const HELP: Record<Tool, string> = {
-  move: 'Drag corners, sides, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river, mud or corner for its settings, beside it. Double-tap a wall to add a corner.',
+  move: 'Drag corners, sides, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river, mud or corner for its settings, beside it; most can be duplicated there, or with ⌘D / Ctrl D. Double-tap a wall to add a corner.',
   outline: 'Tap the corners of the outer wall, then the first corner again or DONE to close it: it replaces the old outline.',
   block: 'Tap the corners of a solid block, then the first corner again or DONE. Or press and drag for a round one: from its centre out to its edge. MAKE IT ROUND on its settings bends it into a smooth curve through its corners, which you can still drag.',
   tee: 'Drag out the tee mat, where players place their first shot.',
@@ -291,6 +291,55 @@ function roundRadius(at: Vec, edge: Vec): number {
 // Blocks' corners: every one, to drag; only cornered blocks' sides are
 // straight, to drag or add a corner to.
 const blockCorners = () => draft.blocks.map(cornersOf).filter((c): c is Vec[] => !!c);
+// --- Duplicating -------------------------------------------------------------
+
+// Blocks, ramps, rivers, mud and black and white holes can be copied;
+// portals come in pairs of a colour, and there's one tee and one cup.
+const canDuplicate = () => selected?.kind === 'ramp' || selected?.kind === 'well' || selected?.kind === 'zone';
+
+const shift = (p: Vec, d: Vec): Vec => ({ x: p.x + d.x, y: p.y + d.y });
+const shiftAll = (poly: Vec[], d: Vec) => poly.map(p => shift(p, d));
+function shiftBlock(b: Block, d: Vec): Block {
+  if (Array.isArray(b)) return shiftAll(b, d);
+  if (isSmooth(b)) return { smooth: shiftAll(b.smooth, d) };
+  return { at: shift(b.at, d), radius: b.radius };
+}
+
+// The copy goes beside the original with at least a ball's width between
+// them, on whichever side keeps it inside the frame: right, left, below,
+// above. It's then the one selected, so DUPLICATE again makes a row.
+function duplicate() {
+  const sel = selected;
+  if (!sel || !canDuplicate()) return;
+  const area: Vec[] | undefined =
+    sel.kind === 'ramp' ? draft.ramps[sel.i]?.area
+      : sel.kind === 'well' ? (w => w && [shift(w.at, { x: -w.radius, y: -w.radius }), shift(w.at, { x: w.radius, y: w.radius })])(draft.wells[sel.i])
+        : sel.kind === 'zone' ? (z => z && solid(z))(draft[sel.zone][sel.i])
+          : undefined;
+  if (!area?.length) return;
+  const box = bounds(area);
+  const gap = (n: number) => Math.ceil((n + GRID) / SNAP) * SNAP;
+  const [dx, dy] = [gap(box.w), gap(box.h)];
+  const fits = (d: Vec) => box.x + d.x >= 0 && box.x + box.w + d.x <= FRAME.w && box.y + d.y >= 0 && box.y + box.h + d.y <= FRAME.h;
+  const sides = [{ x: dx, y: 0 }, { x: -dx, y: 0 }, { x: 0, y: dy }, { x: 0, y: -dy }];
+  const d = sides.find(fits) ?? sides[0]!;
+  remember();
+  if (sel.kind === 'ramp') {
+    const r = draft.ramps[sel.i]!;
+    draft.ramps.push({ area: shiftAll(r.area, d), angle: r.angle, strength: r.strength });
+    selected = { kind: 'ramp', i: draft.ramps.length - 1 };
+  } else if (sel.kind === 'well') {
+    const w = draft.wells[sel.i]!;
+    draft.wells.push({ ...w, at: shift(w.at, d) });
+    selected = { kind: 'well', i: draft.wells.length - 1 };
+  } else if (sel.kind === 'zone') {
+    if (sel.zone === 'blocks') draft.blocks.push(shiftBlock(draft.blocks[sel.i]!, d));
+    else draft[sel.zone].push(shiftAll(draft[sel.zone][sel.i]!, d));
+    selected = { kind: 'zone', zone: sel.zone, i: draft[sel.zone].length - 1 };
+  }
+  changed();
+}
+
 const cornered = (blocks: Block[]) => blocks.filter((b): b is Vec[] => Array.isArray(b));
 
 // Cornered to smooth, through the same corners, and back. A circle becomes
@@ -637,6 +686,10 @@ window.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     undo();
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+    // Not the browser's bookmark.
+    e.preventDefault();
+    if (tool !== 'test') duplicate();
   } else if (e.key === 'Enter') {
     closeShape();
   } else if (e.key === 'Escape' && tool === 'test') {
@@ -902,6 +955,11 @@ function renderProps() {
     }
   } else if (corner) {
     title.textContent = 'CORNER';
+  }
+  if (canDuplicate()) {
+    const copy = Object.assign(document.createElement('button'), { type: 'button', textContent: 'DUPLICATE', title: 'Duplicate (⌘D / Ctrl D)' });
+    copy.addEventListener('click', duplicate);
+    rows.push(copy);
   }
   const target = selectedTarget();
   const drop = Object.assign(document.createElement('button'), { type: 'button', className: 'danger', textContent: 'DELETE' });
