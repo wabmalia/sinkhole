@@ -20,7 +20,90 @@ const el = {
   intro: $('intro'),
   introOk: $<HTMLButtonElement>('intro-ok'),
   toast: $('toast'),
+  hourglass: $('hourglass'),
+  hgLeft: $('hg-left'),
 };
+
+// The hourglass's sand: data blocks like a river's, hexes in rows filling
+// each bulb, with links between neighbours. Laid out once; each frame only
+// sizes them.
+const SVG = 'http://www.w3.org/2000/svg';
+const HEX_R = 1.95;
+const HEX_W = Math.sqrt(3) * HEX_R;
+
+interface Cell {
+  x: number;
+  y: number;
+  el: SVGPolygonElement;
+  size: number;
+}
+
+// Half the top bulb's width at height y (0 to 30): wide at the top,
+// narrowing to the neck. The bottom bulb is its mirror image.
+const bulbHalf = (y: number) => 1.4 + 9.2 * Math.pow(Math.max(0, (29 - y) / 22), 0.7);
+
+// A steady 0 to 1 per block, so the same ones are solid every time.
+const solidHash = (n: number) => {
+  const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return v - Math.floor(v);
+};
+
+const hexPoints = (r: number) =>
+  Array.from({ length: 6 }, (_, i) => {
+    const a = (Math.PI / 3) * i + Math.PI / 6;
+    return `${(Math.cos(a) * r).toFixed(2)},${(Math.sin(a) * r).toFixed(2)}`;
+  }).join(' ');
+
+const hg = (() => {
+  const cellsG = document.getElementById('hg-cells')!;
+  const linksG = document.getElementById('hg-links')!;
+  const spots: { x: number; y: number }[] = [];
+  for (let row = 0, y = 6 + HEX_R; y < 29; row++, y += HEX_R * 1.5) {
+    for (let x = 20 - 12 + (row % 2) * (HEX_W / 2); x < 32; x += HEX_W) {
+      if (Math.abs(x - 20) + HEX_R * 0.75 <= bulbHalf(y + HEX_R * 0.5)) spots.push({ x, y });
+    }
+  }
+  const make = (x: number, y: number, n: number, r = HEX_R * 0.8): Cell => {
+    const el = document.createElementNS(SVG, 'polygon');
+    el.setAttribute('points', hexPoints(r));
+    el.setAttribute('class', solidHash(n) < 0.25 ? 'cell solid' : 'cell');
+    cellsG.append(el);
+    return { x, y, el, size: -1 };
+  };
+  // The top drains from its surface down; the bottom fills from its floor up.
+  const top = [...spots].sort((a, b) => b.y - a.y).map((p, i) => make(p.x, p.y, i));
+  const bottom = [...spots].sort((a, b) => a.y - b.y).map((p, i) => make(p.x, 60 - p.y, i + 500));
+  const links: { a: Cell; b: Cell; el: SVGLineElement }[] = [];
+  for (const bulb of [top, bottom]) {
+    for (let i = 0; i < bulb.length; i++) {
+      for (let j = i + 1; j < bulb.length; j++) {
+        const a = bulb[i]!;
+        const b = bulb[j]!;
+        if (Math.hypot(a.x - b.x, a.y - b.y) > HEX_W * 1.05) continue;
+        const el = document.createElementNS(SVG, 'line');
+        el.setAttribute('class', 'link');
+        el.setAttribute('x1', `${a.x}`);
+        el.setAttribute('y1', `${a.y}`);
+        el.setAttribute('x2', `${b.x}`);
+        el.setAttribute('y2', `${b.y}`);
+        linksG.append(el);
+        links.push({ a, b, el });
+      }
+    }
+  }
+  // A trickle of small blocks falling through the neck.
+  const falling = [0, 1, 2].map(i => make(20, 30, i + 900, HEX_R * 0.5));
+  return { top, bottom, links, falling };
+})();
+
+const backOut = (t: number) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
+
+function sizeCell(c: Cell, size: number) {
+  if (Math.abs(size - c.size) < 0.01) return;
+  c.size = size;
+  c.el.style.display = size <= 0 ? 'none' : '';
+  if (size > 0) c.el.setAttribute('transform', `translate(${c.x.toFixed(2)} ${c.y.toFixed(2)}) scale(${size.toFixed(3)})`);
+}
 
 export const css = (color: number) => `#${color.toString(16).padStart(6, '0')}`;
 
@@ -142,6 +225,41 @@ export function flash(text: string, color?: number) {
   el.flash.classList.remove('show');
   void el.flash.offsetWidth; // restart the animation
   el.flash.classList.add('show');
+}
+
+// The hourglass for a shot running long: `k` from 0 (just shown) to 1 (out
+// of time), or null to hide it; `left` is the seconds left.
+export function hourglass(k: number | null, left = 0) {
+  if (k === null) {
+    el.hourglass.hidden = true;
+    return;
+  }
+  el.hourglass.hidden = false;
+  const f = Math.min(1, Math.max(0, k));
+  // Each block in the top shrinks away in turn, from the surface down; each
+  // in the bottom pops in, from the floor up.
+  const n = hg.top.length;
+  hg.top.forEach((c, i) => sizeCell(c, Math.min(1, Math.max(0, (1 - f) * n - i))));
+  hg.bottom.forEach((c, i) => {
+    const t = Math.min(1, Math.max(0, f * n - i));
+    sizeCell(c, t <= 0 ? 0 : backOut(t));
+  });
+  for (const l of hg.links) {
+    const k = Math.min(l.a.size, l.b.size, 1);
+    l.el.style.display = k > 0 ? '' : 'none';
+    if (k > 0) l.el.setAttribute('stroke-opacity', (0.5 * k).toFixed(2));
+  }
+  // Falling to the top of the heap below.
+  const heap = hg.bottom.reduce((y, c) => (c.size > 0 ? Math.min(y, c.y) : y), 54);
+  const s = performance.now() / 1000;
+  hg.falling.forEach((c, i) => {
+    if (f >= 1) return sizeCell(c, 0);
+    const t = (s * 2.2 + i / 3) % 1;
+    c.y = 30 + t * (heap - 30 - HEX_R);
+    c.size = -1;
+    sizeCell(c, 1);
+  });
+  el.hgLeft.textContent = `${Math.ceil(left)}`;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;

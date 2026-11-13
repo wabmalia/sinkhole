@@ -55,6 +55,15 @@
     </div>
   </section>
   <p class="flash" id="flash" aria-live="polite"></p>
+  <div class="hourglass" id="hourglass" role="timer" aria-label="Shot running long" hidden>
+    <svg viewBox="0 0 40 60" aria-hidden="true">
+      <g id="hg-links"></g>
+      <g id="hg-cells"></g>
+      <path class="frame" d="M6 4 H34 M6 56 H34 M9 4 C9 18 18 24 18 30 C18 36 9 42 9 56 M31 4 C31 18 22 24 22 30 C22 36 31 42 31 56" />
+    </svg>
+    <span id="hg-left"></span>
+    <p class="hg-note">STILL ROLLING · +1 AT 0</p>
+  </div>
   <p class="toast" id="toast" role="status" hidden></p>
   <p class="offline" id="offline" hidden>RECONNECTING TO HOST…</p>
 

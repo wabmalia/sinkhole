@@ -313,6 +313,51 @@ html, body {
   100% { opacity: 0; transform: scale(1.04); }
 }
 
+/* --- Hourglass: a shot running long ------------------------------------- */
+
+.hourglass {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--gold);
+  pointer-events: none;
+  animation: hourglass-in 0.4s ease-out;
+}
+
+.hourglass[hidden] { display: none; }
+.hourglass svg, .hourglass span { filter: drop-shadow(0 0 8px var(--gold)); }
+.hourglass svg { width: 72px; height: 108px; overflow: visible; }
+.hourglass .frame { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+/* The sand is data blocks, like a river's: hexes, some solid, linked. */
+.hourglass .cell { fill: none; stroke: currentColor; stroke-width: 0.35; stroke-opacity: 0.85; }
+.hourglass .cell.solid { fill: currentColor; fill-opacity: 0.45; }
+.hourglass .link { stroke: currentColor; stroke-width: 0.3; }
+.hourglass span { font-size: 16px; font-weight: 900; letter-spacing: 0.1em; }
+.hourglass .hg-note {
+  margin: 2px 0 0;
+  text-shadow: 0 0 10px var(--gold);
+  max-width: min(260px, calc(100vw - 32px));
+  text-align: center;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.4;
+}
+
+@keyframes hourglass-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.7) rotate(-180deg); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hourglass { animation: none; }
+}
+
 /* --- Overlays ------------------------------------------------------------ */
 
 .overlay {

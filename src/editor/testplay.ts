@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { settle, shotVelocity, type Ball, type Course } from '../engine/physics';
+import { playOut, shotVelocity, type Ball, type Course } from '../engine/physics';
 import type { Vec } from '../engine/vec';
 
 // Shots for the editor's test tool, with the game's physics but no sway:
@@ -38,7 +38,7 @@ export function probe(course: Course, from: Vec, progress: (p: Probe, done: bool
         const power = CONFIG.aim.minPower + ((1 - CONFIG.aim.minPower) * k) / (POWERS - 1);
         const b = testBall(from);
         shoot(b, angle, power);
-        const events = settle(course, [b]);
+        const events = playOut(course, [b]);
         result.tried++;
         if (b.sunk) {
           result.sunk++;

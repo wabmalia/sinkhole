@@ -1,7 +1,7 @@
 import { CONFIG, PLAYER_COLORS } from '../config';
 import { onRect } from '../holes/types';
 import { courseOf, holeOf } from '../sets';
-import { settle, shotVelocity, type Ball, type PhysicsEvent } from './physics';
+import { playOut, shotVelocity, type Ball, type PhysicsEvent } from './physics';
 import type { Shot } from './shot';
 import { clamp, type Vec } from './vec';
 
@@ -103,11 +103,11 @@ export function play(g: Game, playerId: string, shot: Shot, at?: Vec): { game: G
   if (!Number.isFinite(shot.angle) || !Number.isFinite(shot.power)) throw new EngineError('Bad shot');
   const next = structuredClone(g);
   launch(next, shot, at);
-  const events = settle(courseOf(next.holeId), balls(next));
+  const events = playOut(courseOf(next.holeId), balls(next));
   for (const b of balls(next)) b.vel = { x: 0, y: 0 };
   const p = current(next);
   // A stroke, plus one each time the shooter's ball went back from a river or
-  // a black hole. Balls knocked in by someone else go back for free.
+  // a black hole, or because the shot ran too long. Balls knocked in by someone else go back for free.
   p.strokes += 1 + events.filter(e => e.type === 'reset' && e.ball === p.ball?.id).length;
   next.shots++;
   endShot(next);

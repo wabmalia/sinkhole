@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, CONFIG, PORTAL_TINT } from '../config';
 import { balls, canPlace, current, launch, teeSpot, type Game } from '../engine/game';
-import { atRest, step, type PhysicsEvent } from '../engine/physics';
+import { atRest, HOURGLASS_STEPS, step, timeOut, TIMEOUT_STEPS, type PhysicsEvent } from '../engine/physics';
 import { swayAt, swayCycle, swayOf, type Shot } from '../engine/shot';
 import { clamp, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { courseOf, DEFAULT_HOLE, holeOf } from '../sets';
@@ -61,7 +61,7 @@ export class CourseScene extends Phaser.Scene {
   private accumulator = 0;
   private trails = new Map<number, Trail>(); // by ball id; broken-off pieces get negative keys
   private trailPieces = 0;
-  private rollSince = 0;
+  private rollSteps = 0;     // physics steps this shot has run
   // Where the moving parts of the hole go, worked out once per hole.
   private look!: Layout;
   private rings: Ring[] = [];
@@ -191,6 +191,7 @@ export class CourseScene extends Phaser.Scene {
     this.drag = null;
     this.remoteAim = null;
     this.sent = false;
+    ui.hourglass(null);
   }
 
   private beginTurn(g: Game) {
@@ -259,7 +260,7 @@ export class CourseScene extends Phaser.Scene {
     launch(sim, shot, at);
     this.shown = sim;
     this.rolling = true;
-    this.rollSince = this.time.now;
+    this.rollSteps = 0;
     this.accumulator = 0;
     this.remoteAim = null;
     const p = current(sim);
@@ -362,8 +363,9 @@ export class CourseScene extends Phaser.Scene {
     this.accumulator += Math.min(delta, 100) / 1000;
     const live = balls(g);
     const course = courseOf(g.holeId);
-    while (this.accumulator >= CONFIG.physics.step) {
+    while (this.accumulator >= CONFIG.physics.step && this.rollSteps < TIMEOUT_STEPS) {
       this.accumulator -= CONFIG.physics.step;
+      this.rollSteps++;
       for (const e of step(course, live)) this.onEvent(g, e, time);
     }
     for (const b of live) {
@@ -372,8 +374,17 @@ export class CourseScene extends Phaser.Scene {
       const last = t.points[t.points.length - 1]!;
       if (dist(last, b.pos) > 3) t.points.push({ ...b.pos });
     }
-    // The host gives up on a shot after 30 s as well (settle's limit).
-    if (atRest(live) || time - this.rollSince > 30_000) {
+    // A shot running long shows an hourglass, and is called off when it runs
+    // out, on the same step as the host's.
+    if (!atRest(live) && this.rollSteps >= TIMEOUT_STEPS) {
+      for (const e of timeOut(live)) this.onEvent(g, e, time);
+    }
+    const late = this.rollSteps - HOURGLASS_STEPS;
+    ui.hourglass(
+      late >= 0 && !atRest(live) ? late / (TIMEOUT_STEPS - HOURGLASS_STEPS) : null,
+      (TIMEOUT_STEPS - this.rollSteps) * CONFIG.physics.step,
+    );
+    if (atRest(live)) {
       this.rolling = false;
       for (const t of this.trails.values()) {
         if (!t.done) { t.done = true; t.laidAt = time; }
@@ -406,11 +417,12 @@ export class CourseScene extends Phaser.Scene {
       const t = this.breakTrail(e.ball, time);
       if (t) this.trails.set(e.ball, { points: [{ ...e.to }], color: t.color, laidAt: 0, done: false });
     } else if (e.type === 'reset') {
-      const color = e.cause === 'river' ? COLORS.river : COLORS.blackHole;
+      const color = { river: COLORS.river, blackHole: COLORS.blackHole, timeout: COLORS.cup }[e.cause];
       this.rings.push({ at: e.at, color, born: time, life: 600, from: 4, to: 30 });
       this.breakTrail(e.ball, time);
       const p = g.players[e.ball]!;
-      if (p === current(g)) ui.flash(e.cause === 'river' ? 'IN THE RIVER +1' : 'SWALLOWED +1', color);
+      const what = { river: 'IN THE RIVER', blackHole: 'SWALLOWED', timeout: 'TIMED OUT' }[e.cause];
+      if (p === current(g)) ui.flash(`${what} +1`, color);
     }
   }
 

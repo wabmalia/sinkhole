@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
 import { courseOf, holeOf } from '../sets';
 import { courseFrom } from '../holes/types';
-import { settle, step, type Ball, type Course } from './physics';
+import { atRest, playOut, settle, step, TIMEOUT_STEPS, type Ball, type Course } from './physics';
 
 // The hole elements on an open 360 × 900 floor, one at a time.
 const open = courseOf('full-course/0');
@@ -10,6 +10,12 @@ const withOnly = (extra: Partial<Course>): Course => ({ ...open, cup: { x: -100,
 const ball = (x: number, y: number, vx = 0, vy = 0, id = 0): Ball => ({
   id, pos: { x, y }, vel: { x: vx, y: vy }, sunk: false, from: { x, y },
 });
+// Seconds until every ball stops, up to settle's 30 s limit.
+const restTime = (course: Course, balls: Ball[]) => {
+  let t = 0;
+  for (; t < 30 && !atRest(balls); t += CONFIG.physics.step) step(course, balls);
+  return t;
+};
 const square = (x: number, y: number, w: number, h: number) => [
   { x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h },
 ];
@@ -43,6 +49,33 @@ describe('ramps', () => {
     const wall = withOnly({ ramps: [{ area: square(0, 480, 360, 120), angle: 90, strength: 12000 }] });
     settle(wall, [b]);
     expect(b.pos.y).toBeGreaterThan(480);
+  });
+
+  it('roll a ball back down once it stops climbing', () => {
+    // It used to stop for good at the top of its roll, halfway up the slope.
+    const b = ball(180, 850, 0, -300);
+    settle(withOnly({ ramps: [{ area: square(0, 300, 360, 600), angle: 90, strength: 600 }] }), [b]);
+    expect(b.pos.y).toBeGreaterThan(890);
+  });
+
+  it('let a ball pressed sideways along a wall come to rest', () => {
+    // Steep and almost straight into the wall: barely any push along it.
+    const b = ball(7, 500, 0, 40);
+    const steep = withOnly({ ramps: [{ area: square(0, 0, 360, 900), angle: 179, strength: 12000 }] });
+    expect(restTime(steep, [b])).toBeLessThan(3);
+  });
+
+  it('slide a ball pressed into a wall at an angle into the corner', () => {
+    const b = ball(180, 885, 1, 0);
+    const slope = withOnly({ ramps: [{ area: square(0, 600, 360, 300), angle: 45, strength: 6000 }] });
+    expect(restTime(slope, [b])).toBeLessThan(3);
+    expect(b.pos.x).toBeGreaterThan(350);
+  });
+
+  it('let a ball on a slope barely steeper than rolling resistance stop', () => {
+    const b = ball(180, 400, 1, 0);
+    const gentle = withOnly({ ramps: [{ area: square(0, 0, 360, 900), angle: 90, strength: CONFIG.physics.rolling + 1 }] });
+    expect(restTime(gentle, [b])).toBeLessThan(1);
   });
 
   it('let a ball pressed into a wall come to rest', () => {
@@ -122,6 +155,29 @@ describe('wells', () => {
     expect(b.pos).toEqual({ x: 180, y: 700 });
   });
 
+  // A pull or push this strong bounced a ball off the wall and back into
+  // it for ever, and the shot never ended.
+  it('a black hole holds a ball against a wall between it and the core', () => {
+    const b = ball(180, 120, 30, -200);
+    const beyond = withOnly({ wells: [{ kind: 'black', at: { x: 180, y: -20 }, radius: 220, strength: 12000 }] });
+    expect(restTime(beyond, [b])).toBeLessThan(3);
+    expect(b.pos.y).toBeCloseTo(CONFIG.ball.radius, 1);
+  });
+
+  it('a white hole holds a ball against a wall', () => {
+    const b = ball(60, 450, -100, 0);
+    const near = withOnly({ wells: [{ kind: 'white', at: { x: 80, y: 450 }, radius: 150, strength: 6000 }] });
+    expect(restTime(near, [b])).toBeLessThan(3);
+    expect(b.pos.x).toBeCloseTo(CONFIG.ball.radius, 1);
+  });
+
+  it('balls piled against a wall by a black hole come to rest', () => {
+    const balls = [0, 1, 2].map(i => ball(160 + i * 16, 120, 50 * (i - 1), -200, i));
+    const beyond = withOnly({ wells: [{ kind: 'black', at: { x: 180, y: -20 }, radius: 220, strength: 12000 }] });
+    expect(restTime(beyond, balls)).toBeLessThan(3);
+    for (const b of balls) expect(b.pos.y).toBeGreaterThan(CONFIG.ball.radius - 0.01);
+  });
+
   it('a white hole pushes a ball out', () => {
     const b = ball(200, 450, 1, 0);
     settle(withOnly({ wells: [{ kind: 'white', at: { x: 180, y: 450 }, radius: 120, strength: 800 }] }), [b]);
@@ -155,5 +211,29 @@ describe('round blocks', () => {
     const events = settle({ ...course, cup: { x: -100, y: -100 } }, [b], 0.5);
     expect(events.some(e => e.type === 'wall')).toBe(true);
     expect(b.pos.x).toBeGreaterThan(185);
+  });
+});
+
+describe('a shot running long', () => {
+  it('is called off at the time limit: moving balls go back to where it started', () => {
+    const moving = ball(180, 800, 0, -1500);
+    const still = ball(60, 400, 0, 0, 1);
+    const events = playOut(open, [moving, still], 10);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'reset', ball: 0, cause: 'timeout' }));
+    expect(events.some(e => e.type === 'reset' && e.ball === 1)).toBe(false);
+    expect(moving.pos).toEqual({ x: 180, y: 800 });
+    expect(moving.vel).toEqual({ x: 0, y: 0 });
+    expect(still.pos).toEqual({ x: 60, y: 400 });
+  });
+
+  it('is left alone when it settles in time', () => {
+    const b = ball(180, 800, 0, -600);
+    const events = playOut(open, [b]);
+    expect(events.some(e => e.type === 'reset')).toBe(false);
+    expect(b.pos.y).toBeLessThan(800);
+  });
+
+  it('times out after 15 seconds', () => {
+    expect(TIMEOUT_STEPS * CONFIG.physics.step).toBe(CONFIG.rules.shotTimeout);
   });
 });

@@ -1,6 +1,6 @@
 import './editor.css';
 import { COLORS, CONFIG, PORTAL_TINT } from '../config';
-import { atRest, step, type Ball, type Course } from '../engine/physics';
+import { atRest, step, timeOut, TIMEOUT_STEPS, type Ball, type Course } from '../engine/physics';
 import { clamp, closestOnSegment, dist, fromAngle, lerp, type Vec } from '../engine/vec';
 import { FRAME, inside, LIMITS, parseHole, type HoleFile } from '../holes/format';
 import { bounds, cornersOf, courseFrom, isRound, isSmooth, PORTAL_COLORS, solid, solids, type Block, type Portal, type PortalColor, type Rect, type Round, type Well } from '../holes/types';
@@ -810,13 +810,15 @@ function testUp() {
   renderPanel();
   let last = performance.now();
   let acc = 0;
+  let steps = 0;
   const frame = (now: number) => {
     const ball = test.ball;
     if (!test.rolling || !ball || !test.course || tool !== 'test') return;
     acc += Math.min(now - last, 100) / 1000;
     last = now;
-    while (acc >= CONFIG.physics.step) {
+    while (acc >= CONFIG.physics.step && steps < TIMEOUT_STEPS) {
       acc -= CONFIG.physics.step;
+      steps++;
       for (const e of step(test.course, [ball])) {
         if (e.type === 'reset') {
           test.strokes++;
@@ -829,6 +831,11 @@ function testUp() {
     }
     const tail = test.trail[test.trail.length - 1];
     if (!tail || dist(tail, ball.pos) > 3) test.trail.push({ ...ball.pos });
+    if (steps >= TIMEOUT_STEPS && timeOut([ball]).length) {
+      test.strokes++;
+      test.note = `Timed out after ${CONFIG.rules.shotTimeout} s: back, +1.`;
+      test.trail = [];
+    }
     if (atRest([ball])) {
       test.rolling = false;
       if (ball.sunk) test.note = `Sunk in ${test.strokes} (par ${draft.par}).`;

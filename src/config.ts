@@ -15,6 +15,8 @@ export const CONFIG = {
     wallBounce: 0.78,     // share of speed kept off a wall, along the normal
     wallScrub: 0.96,      // share of speed kept along the wall on impact
     ballBounce: 0.9,      // ball-on-ball restitution
+    wallGrip: 0.3,        // a ball pressed into a wall rubs along it: this share of the push into the wall slows it along the wall
+    restPress: 2,         // a ball meeting a wall or ball no faster than stopSpeed plus this many steps of its ramp or well push rests against it, no bounce
   },
 
   cup: {
@@ -58,6 +60,8 @@ export const CONFIG = {
 
   rules: {
     maxStrokes: 8,        // picked up after this many, scoring maxStrokes + 1
+    hourglassAfter: 5,    // seconds of rolling before an hourglass shows the shot is running long
+    shotTimeout: 15,      // seconds of rolling before the shot is called off: moving balls go back, the shooter's +1
   },
 
   look: {
