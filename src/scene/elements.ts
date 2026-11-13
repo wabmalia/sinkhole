@@ -5,7 +5,7 @@ import { bounds, wallLines, type Hole } from '../holes/types';
 import { onFloor, onlyOn, type Pen } from './pen';
 
 // The moving parts of a hole: light running along the walls, ramp chevrons,
-// river hexes, well ripples and pixel portals. Where things go is worked out
+// river hexes, mud bubbles, well ripples and pixel portals. Where things go is worked out
 // once per hole (`layout`); `drawMoving` redraws them every frame. The game
 // and the editor both use these.
 
@@ -30,6 +30,13 @@ interface Hex {
   solid: boolean;
 }
 
+interface Bubble {
+  at: Vec;
+  size: number;         // radius when full, before it pops
+  period: number;       // seconds per bubble
+  phase: number;
+}
+
 interface Pixel {
   x: number;
   y: number;
@@ -42,11 +49,14 @@ export interface Layout {
   ramps: RampMarks[];
   hexes: Hex[];
   links: [number, number][];
+  bubbles: Bubble[];
+  ooze: [number, number][];
   pixels: Pixel[];
   floor: Pick<Hole, 'outline' | 'blocks'>;
 }
 
 const HEX = 7;                // river hex radius
+const BUBBLE = 9;             // spacing of mud bubbles
 const PIXEL = 3;              // portal pixel size
 const PULSE = { speed: 150, tail: 80, every: 420 };
 
@@ -57,7 +67,7 @@ const hash = (n: number) => {
   return s - Math.floor(s);
 };
 
-export function layout(hole: Pick<Hole, 'outline' | 'blocks' | 'ramps' | 'rivers'>): Layout {
+export function layout(hole: Pick<Hole, 'outline' | 'blocks' | 'ramps' | 'rivers' | 'mud'>): Layout {
   const walls = wallLines(hole.outline, hole.blocks).map(line => {
     const at = [0];
     for (let i = 1; i < line.length; i++) at.push(at[i - 1]! + dist(line[i - 1]!, line[i]!));
@@ -106,6 +116,29 @@ export function layout(hole: Pick<Hole, 'outline' | 'blocks' | 'ramps' | 'rivers
     }
   }
 
+  // Mud bubbles on a looser, jittered version of the same mesh, so it reads
+  // as the river's slower, thicker cousin.
+  const bubbles: Bubble[] = [];
+  const bw = Math.sqrt(3) * BUBBLE;
+  for (const mud of hole.mud) {
+    const b = bounds(mud);
+    for (let row = 0, y = b.y + BUBBLE; y < b.y + b.h; row++, y += BUBBLE * 1.5) {
+      for (let x = b.x + bw / 2 + (row % 2) * (bw / 2); x < b.x + b.w; x += bw) {
+        const n = bubbles.length + 1000;
+        const at = { x: x + (hash(n + 0.1) - 0.5) * 4, y: y + (hash(n + 0.2) - 0.5) * 4 };
+        const size = BUBBLE * (0.35 + 0.35 * hash(n + 0.3));
+        if (!inside(at, mud) || ![0, 1, 2, 3, 4, 5].every(k => inside(ringPoint(at, size + 2, k), mud))) continue;
+        bubbles.push({ at, size, period: 4 + 5 * hash(n), phase: hash(n + 0.5) });
+      }
+    }
+  }
+  const ooze: [number, number][] = [];
+  for (let i = 0; i < bubbles.length; i++) {
+    for (let j = i + 1; j < bubbles.length; j++) {
+      if (dist(bubbles[i]!.at, bubbles[j]!.at) < bw * 1.15) ooze.push([i, j]);
+    }
+  }
+
   // The squares a portal is made of, from its centre, laid evenly round it.
   const pr = CONFIG.features.portalRadius;
   const pixels: Pixel[] = [];
@@ -119,7 +152,7 @@ export function layout(hole: Pick<Hole, 'outline' | 'blocks' | 'ramps' | 'rivers
     }
   }
 
-  return { walls, ramps, hexes, links, pixels, floor: { outline: hole.outline, blocks: hole.blocks } };
+  return { walls, ramps, hexes, links, bubbles, ooze, pixels, floor: { outline: hole.outline, blocks: hole.blocks } };
 }
 
 // What moves: the hole as far as it's drawn (the editor's may have no cup
@@ -131,6 +164,7 @@ export function drawMoving(fx: Pen, hole: Moving, look: Layout, time: number) {
   drawWalls(fx, look, time);
   drawRamps(fx, hole, look, time);
   drawRivers(fx, look, time);
+  drawMud(fx, look, time);
   drawWells(fx, hole, look, time);
   drawPortals(fx, hole, look, time);
 }
@@ -257,6 +291,56 @@ function drawRivers(fx: Pen, look: Layout, time: number) {
     fx.strokePoints(corners, true, true);
   });
 }
+
+// Mud: bubbles slowly swell, wobble and pop into a fading ring, then rest a
+// while before the next. Neighbours that are both up are joined by a thick,
+// dim strand that sags as they grow.
+function drawMud(fx: Pen, look: Layout, time: number) {
+  const s = time / 1000;
+  const state = look.bubbles.map(b => (s / b.period + b.phase) % 1);
+  // Swelling for the first 70%, a pop ring to 85%, then nothing.
+  const grow = state.map(t => (t < 0.7 ? Math.sin((t / 0.7) * Math.PI * 0.5) : 0));
+  for (const [i, j] of look.ooze) {
+    const k = Math.min(grow[i]!, grow[j]!);
+    if (k <= 0.15) continue;
+    const a = look.bubbles[i]!.at;
+    const b = look.bubbles[j]!.at;
+    const sag = 2.5 * k;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + sag };
+    fx.lineStyle(2, COLORS.mud, 0.3 * k);
+    fx.lineBetween(a.x, a.y, mid.x, mid.y);
+    fx.lineBetween(mid.x, mid.y, b.x, b.y);
+  }
+  look.bubbles.forEach((b, i) => {
+    const t = state[i]!;
+    const k = grow[i]!;
+    if (k > 0) {
+      const r = b.size * (0.25 + 0.75 * k);
+      const wob = 1 + 0.08 * Math.sin(s * 3 + i);
+      const shape = [0, 1, 2, 3, 4, 5, 6, 7].map(n => {
+        const a = (n / 8) * Math.PI * 2;
+        const rr = r * (n % 2 ? wob : 2 - wob);
+        return { x: b.at.x + Math.cos(a) * rr, y: b.at.y + Math.sin(a) * rr };
+      });
+      fx.fillStyle(COLORS.mud, 0.25 + 0.2 * k);
+      fx.fillPoints(shape, true);
+      fx.lineStyle(1.2, COLORS.mud, 0.5 + 0.4 * k);
+      fx.strokePoints(shape, true, true);
+      // A glint up and to the left.
+      fx.fillStyle(0xffffff, 0.25 * k);
+      fx.fillCircle(b.at.x - r * 0.35, b.at.y - r * 0.35, Math.max(0.6, r * 0.18));
+    } else if (t < 0.85) {
+      const p = (t - 0.7) / 0.15;
+      fx.lineStyle(1, COLORS.mud, 0.6 * (1 - p));
+      fx.strokeCircle(b.at.x, b.at.y, b.size * (1 + p * 0.8));
+    }
+  });
+}
+
+const ringPoint = (at: Vec, r: number, k: number): Vec => {
+  const a = (k * Math.PI) / 3;
+  return { x: at.x + Math.cos(a) * r, y: at.y + Math.sin(a) * r };
+};
 
 function hexCorners(at: Vec, r: number): Vec[] {
   return [0, 1, 2, 3, 4, 5].map(k => {

@@ -322,7 +322,18 @@ kbd {
   width: max-content;
   max-width: calc(100% - 80px);
   transform: translateX(-50%);
+  cursor: grab;
+  touch-action: none;
 }
+
+/* Once dragged, it stays where it was put. */
+.shape-bar.pinned {
+  bottom: auto;
+  transform: none;
+}
+
+.shape-bar button { cursor: pointer; }
+.shape-bar .grip { font-size: 14px; letter-spacing: -2px; user-select: none; }
 
 .shape-bar span {
   font-family: system-ui, sans-serif;

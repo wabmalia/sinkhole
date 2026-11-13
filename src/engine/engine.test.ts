@@ -8,6 +8,7 @@ import { swayAt, type Shot } from './shot';
 const UP = -Math.PI / 2;
 const straight = holeOf('full-course/0');
 const course: Course = courseOf('full-course/0');
+const CUP = course.cup;
 const ball = (x: number, y: number, vx = 0, vy = 0, id = 0): Ball => ({ id, pos: { x, y }, vel: { x: vx, y: vy }, sunk: false });
 
 describe('physics', () => {
@@ -31,6 +32,27 @@ describe('physics', () => {
     b.vel = shotVelocity(UP, 0.12);
     settle(course, [b]);
     expect(b.sunk).toBe(true);
+  });
+
+  it('a slow ball that just misses the cup curls in', () => {
+    // Its edge passes a unit or two clear of the cup's.
+    const off = CONFIG.cup.radius + CONFIG.ball.radius + 1.5;
+    const b = ball(CUP.x + off, CUP.y + 60, 0, -220);
+    settle(course, [b]);
+    expect(b.sunk).toBe(true);
+  });
+
+  it('a firm putt straight at the middle drops', () => {
+    const b = ball(CUP.x, CUP.y + 60, 0, -650);
+    settle(course, [b]);
+    expect(b.sunk).toBe(true);
+  });
+
+  it('a ball well wide of the cup rolls on past', () => {
+    const off = CONFIG.cup.radius + CONFIG.ball.radius + 8;
+    const b = ball(CUP.x + off, CUP.y + 60, 0, -220);
+    settle(course, [b]);
+    expect(b.sunk).toBe(false);
   });
 
   it('a screamer lips out over the cup', () => {

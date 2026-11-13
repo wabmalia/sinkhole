@@ -80,6 +80,33 @@ describe('rivers', () => {
   });
 });
 
+describe('mud', () => {
+  const mud = (width: number) => withOnly({ mud: [square(0, 500, 360, width)] });
+
+  it('stops a ball that runs out of pace in it, and leaves it there', () => {
+    const b = ball(180, 700, 0, -500);
+    const events = settle(mud(200), [b]);
+    expect(events.some(e => e.type === 'reset')).toBe(false);
+    expect(b.pos.y).toBeLessThan(700);
+    expect(b.pos.y).toBeGreaterThan(500);
+  });
+
+  it('drags a ball almost as hard as a river', () => {
+    const dry = ball(180, 700, 0, -900);
+    const wet = ball(180, 700, 0, -900);
+    settle(open, [dry]);
+    settle(mud(200), [wet]);
+    expect(wet.pos.y).toBeGreaterThan(dry.pos.y + 100);
+  });
+
+  it('holds a ball against a gentle ramp', () => {
+    const b = ball(180, 600, 1, 0);
+    const course = withOnly({ mud: [square(0, 500, 360, 200)], ramps: [{ area: square(0, 500, 360, 200), angle: 90, strength: 600 }] });
+    settle(course, [b], 5);
+    expect(b.pos.y).toBeLessThan(605);
+  });
+});
+
 describe('wells', () => {
   it('a black hole bends a passing ball towards it', () => {
     const b = ball(100, 800, 0, -700);

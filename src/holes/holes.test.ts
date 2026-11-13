@@ -62,6 +62,7 @@ describe('parseHole', () => {
     const elements = {
       ramps: [{ area: [[0, 500], [360, 500], [360, 600], [0, 600]], angle: 90, strength: 300 }],
       rivers: [[[0, 300], [360, 300], [360, 340], [0, 340]]],
+      mud: [[[0, 620], [120, 620], [120, 700], [0, 700]]],
       wells: [{ kind: 'white', at: [100, 450], radius: 60, strength: 600 }],
       portals: [{ color: 'pink', a: [60, 700], b: [300, 220] }],
     };
@@ -70,6 +71,11 @@ describe('parseHole', () => {
     expect(parseHole(JSON.parse(holeToJson(hole!))).hole).toEqual(hole);
 
     expect(errorsOf({ rivers: [[[0, 100], [360, 100], [360, 160], [0, 160]]] })).toContain('river 1: must not cover the cup');
+    expect(hole?.mud).toHaveLength(1);
+    expect(errorsOf({ mud: [[[0, 100], [360, 100], [360, 160], [0, 160]]] })).toContain('mud 1: must not cover the cup');
+    expect(errorsOf({ mud: [[[0, 760], [360, 760], [360, 880], [0, 880]]] })).toContain('mud 1: must not cover the tee');
+    // A cup on a slope is fine.
+    expect(errorsOf({ ramps: [{ area: [[0, 100], [360, 100], [360, 160], [0, 160]], angle: 0, strength: 300 }] })).toEqual([]);
     expect(errorsOf({ ramps: [{ area: [[0, 760], [360, 760], [360, 880], [0, 880]], angle: 0, strength: 300 }] }))
       .toContain('ramp 1: must not cover the tee');
     expect(errorsOf({ wells: [{ kind: 'black', at: [180, 700], radius: 120, strength: 600 }] }))

@@ -18,6 +18,7 @@ export interface Course {
   tee: Rect;            // balls on the mat pass through each other
   ramps: Ramp[];
   rivers: Vec[][];
+  mud: Vec[][];
   wells: Well[];
   portals: Portal[];
 }
@@ -56,11 +57,14 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
     if (speed === 0) continue;
 
     // Rolling resistance plus drag, never reversing the ball. Rivers drag
-    // much harder, like water: the faster the ball, the harder.
+    // much harder, like water: the faster the ball, the harder. Mud drags
+    // too, a little less, and holds a ball against a gentle ramp.
     const wet = course.rivers.some(r => inside(b.pos, r));
+    const muddy = course.mud.some(m => inside(b.pos, m));
     const water = wet ? F.riverDrag + F.riverResist * speed : 0;
-    const slow = (P.rolling + P.drag * speed + water) * dt;
-    if (speed - slow <= P.stopSpeed && len(push) <= P.rolling) {
+    const mud = muddy ? F.mudDrag + F.mudResist * speed : 0;
+    const slow = (P.rolling + P.drag * speed + water + mud) * dt;
+    if (speed - slow <= P.stopSpeed && len(push) <= P.rolling + (muddy ? F.mudDrag : 0)) {
       b.vel = { x: 0, y: 0 };
     } else {
       b.vel = scale(b.vel, Math.max(0, speed - slow) / speed);
@@ -119,8 +123,13 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
     throughPortal(course, b, events);
   }
 
+  // A ball right over the middle drops in at a faster pace than one
+  // clipping the edge, which needs to be slower.
+  const capture = CONFIG.cup.radius + CONFIG.cup.captureSlack;
   for (const b of live) {
-    if (dist(b.pos, course.cup) < CONFIG.cup.radius && len(b.vel) <= CONFIG.cup.captureSpeed) {
+    const d = dist(b.pos, course.cup);
+    const centred = 1 + (CONFIG.cup.captureCentre - 1) * Math.max(0, 1 - d / capture);
+    if (d < capture && len(b.vel) <= CONFIG.cup.captureSpeed * centred) {
       b.sunk = true;
       b.pos = { ...course.cup };
       b.vel = { x: 0, y: 0 };
@@ -131,13 +140,16 @@ export function step(course: Course, balls: Ball[], dt = P.step): PhysicsEvent[]
   return events;
 }
 
-// The ground dips into the cup: once the ball overlaps it, it is pulled in.
-// A slow ball curls in, a fast one lips out.
+// The ground dips into the cup: once the ball overlaps it, it is pulled in,
+// and a little just before, fading in, so a near miss can still curl in. A
+// slow ball curls in, a fast one lips out.
 function cupSlope(cup: Vec, b: Ball, dt: number) {
   const d = sub(cup, b.pos);
   const l = len(d);
-  if (l === 0 || l > CONFIG.cup.radius + R) return;
-  const pull = CONFIG.cup.pull * dt;
+  const touch = CONFIG.cup.radius + R;
+  const reach = CONFIG.cup.pullReach;
+  if (l === 0 || l > touch + reach) return;
+  const pull = CONFIG.cup.pull * dt * Math.min(1, (touch + reach - l) / reach);
   b.vel = { x: b.vel.x + (d.x / l) * pull, y: b.vel.y + (d.y / l) * pull };
 }
 

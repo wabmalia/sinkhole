@@ -35,12 +35,17 @@ interface Draft {
   cup: Vec | null;
   ramps: DraftRamp[];
   rivers: Vec[][];
+  mud: Vec[][];
   wells: Well[];
   portals: DraftPortal[];
 }
 
-type Tool = 'move' | 'outline' | 'block' | 'tee' | 'cup' | 'ramp' | 'river' | 'black' | 'white' | 'portal' | 'test';
-type Zone = 'blocks' | 'ramps' | 'rivers';
+type Tool = 'move' | 'outline' | 'block' | 'tee' | 'cup' | 'ramp' | 'river' | 'mud' | 'black' | 'white' | 'portal' | 'test';
+type Zone = 'blocks' | 'ramps' | 'rivers' | 'mud';
+// The zones that are just a shape, with no settings of their own.
+type Plain = Exclude<Zone, 'ramps'>;
+const PLAIN = ['blocks', 'rivers', 'mud'] as const;
+const PLAIN_NAME: Record<Plain, string> = { blocks: 'BLOCK', rivers: 'RIVER', mud: 'MUD' };
 // Something on the hole that can be picked, dragged or deleted.
 type Target =
   | { kind: 'vertex'; poly: Vec[]; i: number }
@@ -56,7 +61,7 @@ type Target =
 // What the settings card next to it shows.
 type Selection =
   | { kind: 'ramp' | 'well' | 'portal'; i: number }
-  | { kind: 'zone'; zone: 'blocks' | 'rivers'; i: number }
+  | { kind: 'zone'; zone: Plain; i: number }
   | { kind: 'corner'; poly: Vec[]; i: number }
   | null;
 
@@ -68,13 +73,14 @@ const HIT = matchMedia('(pointer: coarse)').matches ? 18 : 10;
 const ARROW = 40;         // length of a ramp's direction arrow, hole units
 
 const HELP: Record<Tool, string> = {
-  move: 'Drag corners, sides, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river or corner for its settings, beside it. Double-tap a wall to add a corner.',
+  move: 'Drag corners, sides, the tee (its corner handle resizes it), the cup or any element. Tap a ramp, black or white hole, portal, block, river, mud or corner for its settings, beside it. Double-tap a wall to add a corner.',
   outline: 'Tap the corners of the outer wall, then the first corner again or DONE to close it: it replaces the old outline.',
   block: 'Tap the corners of a solid block, then the first corner again or DONE.',
   tee: 'Drag out the tee mat, where players place their first shot.',
   cup: 'Tap where the cup goes.',
-  ramp: 'Tap the corners of a ramp, then close it. Drag its arrow to point downhill; tap it to set how steep it is.',
+  ramp: 'Tap the corners of a ramp, then close it. Drag its arrow to point downhill; tap it to set how steep it is. A ramp may run over the cup, but not the tee.',
   river: 'Tap the corners of a river, then close it. It slows the ball, harder the faster it goes: a strong shot gets across a narrow one, but a ball that stops in it goes back where the shot started, +1 stroke.',
+  mud: 'Tap the corners of a patch of mud, then close it. It drags the ball like a river, a little less, but a ball that stops in it stays there: the next shot has to dig it out.',
   black: 'Tap to place a black hole. It pulls balls in and swallows them at the core, like a river. Drag its ring to change its reach.',
   white: 'Tap to place a white hole. It pushes balls away. Drag its ring to change its reach.',
   portal: 'Tap twice: where the ball goes in, and where it comes out. Each colour is one pair.',
@@ -128,6 +134,7 @@ const blank = (): Draft => ({
   cup: { x: 180, y: 130 },
   ramps: [],
   rivers: [],
+  mud: [],
   wells: [],
   portals: [],
 });
@@ -176,6 +183,7 @@ function toFile(d: Draft): Partial<HoleFile> {
     ...(d.cup ? { cup: pair(d.cup) } : {}),
     ...(d.ramps.length ? { ramps: d.ramps.map(r => ({ area: r.area.map(pair), angle: r.angle, strength: r.strength })) } : {}),
     ...(d.rivers.length ? { rivers: d.rivers.map(r => r.map(pair)) } : {}),
+    ...(d.mud.length ? { mud: d.mud.map(m => m.map(pair)) } : {}),
     ...(d.wells.length ? { wells: d.wells.map(w => ({ kind: w.kind, at: pair(w.at), radius: w.radius, strength: w.strength })) } : {}),
     ...(portals.length ? { portals: portals.map(p => ({ color: p.color, a: pair(p.a), b: pair(p.b!) })) } : {}),
   };
@@ -199,6 +207,7 @@ function fromFile(data: unknown): Draft {
     cup: vec(f.cup),
     ramps: objs(f.ramps).map(r => ({ area: poly(r.area), angle: n(r.angle, 90), strength: n(r.strength, 300) })),
     rivers: Array.isArray(f.rivers) ? f.rivers.map(poly) : [],
+    mud: Array.isArray(f.mud) ? f.mud.map(poly) : [],
     wells: objs(f.wells).flatMap(w => {
       const at = vec(w.at);
       return at ? [{ kind: w.kind === 'white' ? 'white' : 'black', at, radius: n(w.radius, 80), strength: n(w.strength, 600) } as Well] : [];
@@ -262,10 +271,13 @@ const arrowTip = (r: DraftRamp): Vec => {
 const ringHandle = (w: Well): Vec => ({ x: w.at.x + w.radius, y: w.at.y });
 
 const zoneOf = (zone: Zone, i: number): Vec[] | undefined =>
-  zone === 'ramps' ? draft.ramps[i]?.area : zone === 'rivers' ? draft.rivers[i] : draft.blocks[i];
+  zone === 'ramps' ? draft.ramps[i]?.area : draft[zone][i];
+
+// Every shape with corners to drag.
+const shapes = () => [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers, ...draft.mud];
 
 function hitAt(w: Vec): Target | null {
-  for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
+  for (const poly of shapes()) {
     const i = poly.findIndex(p => near(p, w));
     if (i >= 0) return { kind: 'vertex', poly, i };
   }
@@ -281,12 +293,12 @@ function hitAt(w: Vec): Target | null {
   if (draft.cup && dist(draft.cup, w) <= CONFIG.cup.radius + HIT / view.scale) return { kind: 'cup' };
   const t = draft.tee;
   if (t && near({ x: t.x + t.w, y: t.y + t.h }, w)) return { kind: 'tee-size' };
-  for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
+  for (const poly of shapes()) {
     const i = poly.findIndex((a, k) => near(closestOnSegment(w, a, poly[(k + 1) % poly.length]!), w));
     if (i >= 0) return { kind: 'edge', poly, i };
   }
   if (t && w.x >= t.x && w.x <= t.x + t.w && w.y >= t.y && w.y <= t.y + t.h) return { kind: 'tee' };
-  for (const zone of ['blocks', 'ramps', 'rivers'] as const) {
+  for (const zone of ['blocks', 'ramps', 'rivers', 'mud'] as const) {
     const list = zone === 'ramps' ? draft.ramps.map(r => r.area) : draft[zone];
     const i = list.findIndex(poly => inside(w, poly));
     if (i >= 0) return { kind: 'zone', zone, i };
@@ -297,7 +309,7 @@ function hitAt(w: Vec): Target | null {
 // Which element a target belongs to, for the properties panel.
 function selectionOf(t: Target): Selection {
   if (t.kind === 'ramp-dir' || (t.kind === 'zone' && t.zone === 'ramps')) return { kind: 'ramp', i: t.i };
-  if (t.kind === 'zone') return { kind: 'zone', zone: t.zone as 'blocks' | 'rivers', i: t.i };
+  if (t.kind === 'zone') return { kind: 'zone', zone: t.zone as Plain, i: t.i };
   if (t.kind === 'well' || t.kind === 'well-size') return { kind: 'well', i: t.i };
   if (t.kind === 'portal') return { kind: 'portal', i: t.i };
   if (t.kind === 'vertex') return { kind: 'corner', poly: t.poly, i: t.i };
@@ -305,7 +317,7 @@ function selectionOf(t: Target): Selection {
     // A side picks its shape, as a tap inside it would.
     const ramp = draft.ramps.findIndex(r => r.area === t.poly);
     if (ramp >= 0) return { kind: 'ramp', i: ramp };
-    for (const zone of ['blocks', 'rivers'] as const) {
+    for (const zone of PLAIN) {
       const i = draft[zone].indexOf(t.poly);
       if (i >= 0) return { kind: 'zone', zone, i };
     }
@@ -341,7 +353,7 @@ el.canvas.addEventListener('pointerdown', e => {
     // A shape, or the shape a side belongs to, as it was when the drag began.
     const zone = target.kind === 'zone' ? zoneOf(target.zone, target.i) ?? [] : target.kind === 'edge' ? target.poly : [];
     drag = { target, from: p, at: { x: e.offsetX, y: e.offsetY }, moved: false, tee: draft.tee && { ...draft.tee }, zone: zone.map(v => ({ ...v })) };
-  } else if (tool === 'outline' || tool === 'block' || tool === 'ramp' || tool === 'river') {
+  } else if (tool === 'outline' || tool === 'block' || tool === 'ramp' || tool === 'river' || tool === 'mud') {
     if (drawing.length >= 3 && near(drawing[0]!, raw)) return closeShape();
     if (!drawing.some(q => q.x === p.x && q.y === p.y)) drawing.push(p);
   } else if (tool === 'tee') {
@@ -474,7 +486,7 @@ el.canvas.addEventListener('pointerleave', () => {
 
 // A corner on whichever wall or edge is under the pointer, if any.
 function addCorner(w: Vec): boolean {
-  for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
+  for (const poly of shapes()) {
     for (let i = 0; i < poly.length; i++) {
       const a = poly[i]!;
       const b = poly[(i + 1) % poly.length]!;
@@ -523,6 +535,7 @@ function closeShape() {
   if (tool === 'outline') draft.outline = drawing;
   else if (tool === 'block') draft.blocks.push(drawing);
   else if (tool === 'river') draft.rivers.push(drawing);
+  else if (tool === 'mud') draft.mud.push(drawing);
   else if (tool === 'ramp') {
     draft.ramps.push({ area: drawing, angle: 90, strength: 300 });
     selected = { kind: 'ramp', i: draft.ramps.length - 1 };
@@ -534,7 +547,7 @@ function closeShape() {
 // --- Keys -------------------------------------------------------------------
 
 const KEYS: Record<string, Tool> = {
-  v: 'move', o: 'outline', b: 'block', t: 'tee', c: 'cup', r: 'ramp', w: 'river', h: 'black', j: 'white', p: 'portal', s: 'test',
+  v: 'move', o: 'outline', b: 'block', t: 'tee', c: 'cup', r: 'ramp', w: 'river', m: 'mud', h: 'black', j: 'white', p: 'portal', s: 'test',
 };
 
 window.addEventListener('keydown', e => {
@@ -790,7 +803,7 @@ function renderProps() {
     });
     rows.push(pick);
   } else if (zone && sel?.kind === 'zone') {
-    title.textContent = sel.zone === 'blocks' ? 'BLOCK' : 'RIVER';
+    title.textContent = PLAIN_NAME[sel.zone];
   } else if (corner) {
     title.textContent = 'CORNER';
   }
@@ -968,6 +981,39 @@ function renderShapeBar() {
   el.shapeDone.disabled = drawing.length < 3;
 }
 
+// The bar can be dragged out of the way of the corners being placed, by
+// anything but its buttons. It stays there for the rest of the visit.
+let barPinned: Vec | null = null;
+let barGrab: Vec | null = null;
+function placeShapeBar() {
+  if (!barPinned || el.shapeBar.hidden) return;
+  const [W, H] = [el.stage.clientWidth, el.stage.clientHeight];
+  el.shapeBar.classList.add('pinned');
+  el.shapeBar.style.left = `${clamp(barPinned.x, 4, W - el.shapeBar.offsetWidth - 4)}px`;
+  el.shapeBar.style.top = `${clamp(barPinned.y, 4, H - el.shapeBar.offsetHeight - 4)}px`;
+}
+el.shapeBar.addEventListener('pointerdown', e => {
+  if ((e.target as HTMLElement).closest('button')) return;
+  // Where on the bar it was grabbed; the rect, as it's centred by a transform
+  // until it's first moved.
+  const r = el.shapeBar.getBoundingClientRect();
+  barGrab = { x: e.clientX - r.left, y: e.clientY - r.top };
+  el.shapeBar.setPointerCapture(e.pointerId);
+  el.shapeBar.style.cursor = 'grabbing';
+});
+el.shapeBar.addEventListener('pointermove', e => {
+  if (!barGrab) return;
+  const stage = el.stage.getBoundingClientRect();
+  barPinned = { x: e.clientX - stage.left - barGrab.x, y: e.clientY - stage.top - barGrab.y };
+  placeShapeBar();
+});
+for (const end of ['pointerup', 'pointercancel'] as const) {
+  el.shapeBar.addEventListener(end, () => {
+    barGrab = null;
+    el.shapeBar.style.cursor = '';
+  });
+}
+
 // --- Drawing ----------------------------------------------------------------
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
@@ -995,7 +1041,7 @@ function path(poly: Vec[], close = true) {
 // Where the moving parts go, worked out again only when the shapes change.
 let look: { key: string; layout: Layout } | null = null;
 function lookOf(shape: Parameters<typeof layout>[0]): Layout {
-  const key = JSON.stringify([shape.outline, shape.blocks, shape.ramps, shape.rivers]);
+  const key = JSON.stringify([shape.outline, shape.blocks, shape.ramps, shape.rivers, shape.mud]);
   if (look?.key !== key) look = { key, layout: layout(shape) };
   return look.layout;
 }
@@ -1013,6 +1059,7 @@ const isSelected = (kind: NonNullable<Selection>['kind'], i: number) => selected
 function draw() {
   paint();
   renderShapeBar();
+  placeShapeBar();
   placeProps();
 }
 
@@ -1075,7 +1122,7 @@ function paint() {
   ctx.strokeRect(0, 0, FRAME.w, FRAME.h);
   ctx.setLineDash([]);
 
-  // Rivers, ramps and wells' reach as in the game; a selected one outlined,
+  // Rivers, mud, ramps and wells' reach as in the game; a selected one outlined,
   // and each ramp's downhill arrow with its tip as a handle.
   drawZones(pen, draft);
   draft.ramps.forEach((r, i) => {
@@ -1145,7 +1192,7 @@ function paint() {
   if (tool === 'move') {
     // The side under the pointer, ready to drag.
     if (hover?.kind === 'edge') line(hover.poly[hover.i]!, hover.poly[(hover.i + 1) % hover.poly.length]!, C.cup, 3 * px);
-    for (const poly of [draft.outline, ...draft.blocks, ...draft.ramps.map(r => r.area), ...draft.rivers]) {
+    for (const poly of shapes()) {
       poly.forEach((p, i) => {
         const on = hover?.kind === 'vertex' && hover.poly === poly && hover.i === i;
         handle(p, on ? 6 : 4, on ? C.cup : C.wall, px);

@@ -20,6 +20,7 @@ export interface Hole {
   cup: Vec;
   ramps: Ramp[];
   rivers: Vec[][];      // slow the ball hard; stop in one and it goes back, +1 stroke
+  mud: Vec[][];         // slow the ball almost as hard, but it stays where it stops
   wells: Well[];
   portals: Portal[];
 }
@@ -140,6 +141,6 @@ export const onRect = (p: Vec, r: Rect): boolean => p.x >= r.x && p.x <= r.x + r
 export function courseFrom(hole: Hole): Course {
   return {
     walls: wallsOf(hole), cup: hole.cup, tee: hole.tee,
-    ramps: hole.ramps, rivers: hole.rivers, wells: hole.wells, portals: hole.portals,
+    ramps: hole.ramps, rivers: hole.rivers, mud: hole.mud, wells: hole.wells, portals: hole.portals,
   };
 }

@@ -34,6 +34,7 @@
       <button type="button" class="tool" data-tool="cup" title="Cup (C)" aria-label="Cup"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" class="fill"/></svg></span><span class="tool-label">CUP</span></button>
       <button type="button" class="tool" data-tool="ramp" title="Ramp (R)" aria-label="Ramp"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l7 6 7-6"/><path d="M5 4l7 6 7-6" opacity="0.5"/></svg></span><span class="tool-label">RAMP</span></button>
       <button type="button" class="tool" data-tool="river" title="River (W)" aria-label="River"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0"/></svg></span><span class="tool-label">RIVER</span></button>
+      <button type="button" class="tool" data-tool="mud" title="Mud (M)" aria-label="Mud"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c2-2 4 1 6 0s3-3 6-2 4 2 6 0"/><circle cx="8" cy="10" r="2.5"/><circle cx="15" cy="8" r="1.8"/><circle cx="17" cy="12.5" r="1.2" class="fill"/></svg></span><span class="tool-label">MUD</span></button>
       <button type="button" class="tool" data-tool="black" title="Black hole (H)" aria-label="Black hole"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" opacity="0.5"/><circle cx="12" cy="12" r="4" class="fill"/></svg></span><span class="tool-label">BLACK</span></button>
       <button type="button" class="tool" data-tool="white" title="White hole (J)" aria-label="White hole"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></span><span class="tool-label">WHITE</span></button>
       <button type="button" class="tool" data-tool="portal" title="Portals (P)" aria-label="Portals"><span class="round"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="16" r="4"/><circle cx="17" cy="8" r="4"/><path d="M10 13l4-3" stroke-dasharray="2 2"/></svg></span><span class="tool-label">PORTAL</span></button>
@@ -55,7 +56,8 @@
     </nav>
 
     <div class="card props" id="props" hidden></div>
-    <div class="card shape-bar" id="shape-bar" hidden>
+    <div class="card shape-bar" id="shape-bar" title="Drag to move this out of the way" hidden>
+      <span class="grip" aria-hidden="true">⠿</span>
       <span id="shape-hint"></span>
       <button type="button" id="shape-done">DONE</button>
       <button type="button" id="shape-cancel">CANCEL</button>

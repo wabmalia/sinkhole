@@ -19,8 +19,11 @@ export const CONFIG = {
 
   cup: {
     radius: 12,
-    pull: 900,            // slope of the cup lip pulling the ball in, units/s²
-    captureSpeed: 330,    // at or below this, a ball over the cup drops in
+    pull: 1200,           // slope of the cup lip pulling the ball in, units/s²
+    pullReach: 4,         // the slope starts this far before the ball touches the cup, fading in
+    captureSpeed: 420,    // at or below this, a ball over the cup's edge drops in
+    captureCentre: 1.5,   // and up to this many times faster over its middle
+    captureSlack: 2,      // a ball this far past the cup's edge still counts as over it
   },
 
   // Hole elements. Limits on what the editor (and a hole file) may set are in
@@ -31,6 +34,8 @@ export const CONFIG = {
     riverDrag: 3000,      // extra slow-down in a river, units/s²: hard shots get across narrow ones
     riverResist: 12,      // and more the faster the ball goes, 1/s: getting across costs a fast ball more
     riverSink: 30,        // a ball this slow in a river has sunk: back where the shot started
+    mudDrag: 1600,        // extra slow-down in mud, units/s²: like a river, but a ball stops in it and stays
+    mudResist: 7,         // and more the faster the ball goes, 1/s
   },
 
   aim: {
@@ -76,6 +81,7 @@ export const COLORS = {
   muted: 0xc0c4dc,
   ramp: 0x7fb2ff,
   river: 0x3df2c0,
+  mud: 0xc98a4b,
   blackHole: 0xa07cff,
   whiteHole: 0xeef0fa,
 } as const;

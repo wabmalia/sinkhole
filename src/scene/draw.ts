@@ -43,10 +43,16 @@ export function drawCourse(g: Pen, hole: Hole) {
   drawWalls(g, hole.outline, hole.blocks);
 }
 
-// Rivers and ramps sit on the floor, and each well's reach is a faint ring,
+// Rivers, mud and ramps sit on the floor, and each well's reach is a faint ring,
 // cut off at the walls; their moving parts are in elements.ts.
-export function drawZones(g: Pen, hole: Pick<Hole, 'outline' | 'blocks' | 'rivers' | 'ramps' | 'wells'>) {
+export function drawZones(g: Pen, hole: Pick<Hole, 'outline' | 'blocks' | 'rivers' | 'mud' | 'ramps' | 'wells'>) {
   const floor = onFloor(hole);
+  for (const mud of hole.mud) {
+    g.fillStyle(COLORS.mud, 0.2);
+    g.fillPoints(mud, true);
+    g.lineStyle(1.5, COLORS.mud, 0.6);
+    g.strokePoints(mud, true, true);
+  }
   for (const river of hole.rivers) {
     g.fillStyle(COLORS.river, 0.14);
     g.fillPoints(river, true);

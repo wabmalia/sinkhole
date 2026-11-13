@@ -15,11 +15,13 @@ import { PORTAL_COLORS, wallLines, type Hole, type Portal, type PortalColor, typ
 //     "cup": [180, 130],
 //     "ramps": [{ "area": [[0, 500], [360, 500], [360, 600], [0, 600]], "angle": 90, "strength": 300 }],
 //     "rivers": [[[0, 300], [360, 300], [360, 340], [0, 340]]],
+//     "mud": [[[0, 600], [120, 600], [120, 680], [0, 680]]],
 //     "wells": [{ "kind": "black", "at": [180, 450], "radius": 90, "strength": 600 }],
 //     "portals": [{ "color": "pink", "a": [60, 700], "b": [300, 200] }]
 //   }
 //
-// Ramps, rivers, wells and portals are optional.
+// Ramps, rivers, mud, wells and portals are optional. A ramp may run over
+// the cup; nothing else that moves the ball may cover the cup or the tee.
 
 // Every hole fits this frame, so every hole shows at the same size in the game.
 export const FRAME = { w: 360, h: 900 } as const;
@@ -31,7 +33,7 @@ export const LIMITS = {
   blocks: 16,
   blockPoints: 32,
   teeMin: 30,   // the mat is at least this wide and tall
-  zones: 12,    // ramps, and rivers, each
+  zones: 12,    // ramps, rivers and mud, each
   zonePoints: 32,
   rampStrength: [40, 12000], // at the top, 120 units of ramp stop a full-power shot
   wells: 6,
@@ -48,6 +50,7 @@ export interface HoleFile {
   cup: [number, number];
   ramps?: { area: [number, number][]; angle: number; strength: number }[];
   rivers?: [number, number][][];
+  mud?: [number, number][][];
   wells?: { kind: Well['kind']; at: [number, number]; radius: number; strength: number }[];
   portals?: { color: PortalColor; a: [number, number]; b: [number, number] }[];
 }
@@ -82,6 +85,7 @@ export function parseHole(data: unknown): Parsed {
 
   const ramps = list(data.ramps, LIMITS.zones, 'ramps', fail).map((r, i) => ramp(r, `ramp ${i + 1}`, fail));
   const rivers = list(data.rivers, LIMITS.zones, 'rivers', fail).map((r, i) => polygon(r, LIMITS.zonePoints, `river ${i + 1}`, fail));
+  const mud = list(data.mud, LIMITS.zones, 'mud', fail).map((m, i) => polygon(m, LIMITS.zonePoints, `mud ${i + 1}`, fail));
   const wells = list(data.wells, LIMITS.wells, 'wells', fail).map((w, i) => well(w, `well ${i + 1}`, fail));
   const portals = list(data.portals, PORTAL_COLORS.length, 'portals', fail).map((p, i) => portal(p, `portal pair ${i + 1}`, fail));
 
@@ -89,7 +93,7 @@ export function parseHole(data: unknown): Parsed {
   const solid = blocks as Vec[][];
   const hole: Hole = {
     name, par: par as number, outline, blocks: solid, tee, cup,
-    ramps: ramps as Ramp[], rivers: rivers as Vec[][], wells: wells as Well[], portals: portals as Portal[],
+    ramps: ramps as Ramp[], rivers: rivers as Vec[][], mud: mud as Vec[][], wells: wells as Well[], portals: portals as Portal[],
   };
 
   // Shape rules, now that the pieces are well formed.
@@ -117,16 +121,18 @@ export function parseHole(data: unknown): Parsed {
   }
   if (inRect(cup, tee)) fail('cup: must not be on the tee');
 
-  // Elements: nothing that moves the ball sits on the tee or the cup.
+  // Elements: nothing that moves the ball sits on the tee, or on the cup
+  // but a ramp: a cup on a slope is fair game.
   const teeZone = corners;
-  const zoneClear = (area: Vec[], what: string) => {
-    if (inside(cup, area)) fail(`${what}: must not cover the cup`);
+  const zoneClear = (area: Vec[], what: string, overCup = false) => {
+    if (!overCup && inside(cup, area)) fail(`${what}: must not cover the cup`);
     if (crosses(area, teeZone) || area.some(p => inRect(p, tee)) || teeZone.some(p => inside(p, area))) {
       fail(`${what}: must not cover the tee`);
     }
   };
-  hole.ramps.forEach((r, i) => zoneClear(r.area, `ramp ${i + 1}`));
+  hole.ramps.forEach((r, i) => zoneClear(r.area, `ramp ${i + 1}`, true));
   hole.rivers.forEach((r, i) => zoneClear(r, `river ${i + 1}`));
+  hole.mud.forEach((m, i) => zoneClear(m, `mud ${i + 1}`));
   const nearTee = (p: Vec, r: number) =>
     dist(p, { x: Math.min(Math.max(p.x, tee.x), tee.x + tee.w), y: Math.min(Math.max(p.y, tee.y), tee.y + tee.h) }) < r;
   hole.wells.forEach((w, i) => {
@@ -169,6 +175,7 @@ export function holeToJson(h: Hole): string {
   // Only the elements a hole uses, so plain holes stay short.
   if (h.ramps.length) file.ramps = h.ramps.map(r => ({ area: r.area.map(pair), angle: r.angle, strength: r.strength }));
   if (h.rivers.length) file.rivers = h.rivers.map(r => r.map(pair));
+  if (h.mud.length) file.mud = h.mud.map(m => m.map(pair));
   if (h.wells.length) file.wells = h.wells.map(w => ({ kind: w.kind, at: pair(w.at), radius: w.radius, strength: w.strength }));
   if (h.portals.length) file.portals = h.portals.map(p => ({ color: p.color, a: pair(p.a), b: pair(p.b) }));
   return (
