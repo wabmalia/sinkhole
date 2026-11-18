@@ -7,7 +7,7 @@
 export const RELAY_URL = 'https://turn-relay.wabmalia.workers.dev/';
 // Public: identifies the Turnstile widget. Its secret lives in the Worker.
 const TURNSTILE_SITEKEY = '0x4AAAAAAFrTw_Fxf9TFG5GL';
-const RELAY_SITE = 'wabmalia.github.io';
+const RELAY_SITE = 'arcade.wabmalia.eu';
 
 // How long the whole thing (Turnstile + Worker) may take in the background,
 // and how long opening a room waits for it before going direct-only.
