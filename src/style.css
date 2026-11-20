@@ -15,6 +15,8 @@
 
 html, body {
   margin: 0;
+  /* No double-tap zoom on phones. */
+  touch-action: manipulation;
   height: 100%;
   background: var(--bg);
   color: var(--fg);
