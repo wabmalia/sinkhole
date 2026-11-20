@@ -22,6 +22,7 @@ const el = {
   code: $<HTMLInputElement>('code'),
   join: $<HTMLButtonElement>('join'),
   soloBox: $('solo-box'),
+  makeBox: $('make-box'),
   multiTitle: $('multi-title'),
   hostNote: $('host-note'),
   hostOr: $('host-or'),
@@ -161,7 +162,7 @@ function render() {
   el.error.hidden = s.status !== 'error';
   el.error.textContent = s.status === 'error' ? s.message : '';
   // From an invite link: just the code to join.
-  el.create.hidden = el.hostOr.hidden = el.hostNote.hidden = el.soloBox.hidden = !!linkCode;
+  el.create.hidden = el.hostOr.hidden = el.hostNote.hidden = el.soloBox.hidden = el.makeBox.hidden = !!linkCode;
   el.multiTitle.textContent = linkCode ? 'JOIN A ROOM' : 'MULTIPLAYER';
 
   el.lobby.hidden = !inRoom || !!game;
@@ -213,10 +214,17 @@ onBrowserSets(() => session.room && !session.room.game && renderSets(session.roo
 
 // The sets to play, shortest first. The host picks; everyone sees the pick.
 // The host's list has the sets saved in their browser too, and guests see
-// the one picked.
+// the one picked. Past a few of their own, the host gets those in a
+// dropdown so the game's sets stay in view.
+const LISTED_OWN = 3;
+
 function renderSets(chosen: string) {
+  const ids = setIds(session.isHost);
+  const own = ids.filter(isBrowserSet);
+  const folded = session.isHost && own.length > LISTED_OWN;
+  const listed = folded ? ids.filter(id => !isBrowserSet(id)) : ids;
   el.sets.replaceChildren(
-    ...setIds(session.isHost).map(id => {
+    ...listed.map(id => {
       const set = setOf(id);
       const li = document.createElement('li');
       const b = document.createElement('button');
@@ -230,15 +238,39 @@ function renderSets(chosen: string) {
       name.textContent = set.name.toUpperCase();
       const info = document.createElement('span');
       info.className = 'set-info';
-      const n = set.holes.length;
       const mine = !isBrowserSet(id) ? '' : session.isHost ? ' · YOURS' : " · HOST'S";
-      info.textContent = `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${parOf(holeKeys(id))}${mine}`;
+      info.textContent = `${setSize(id)}${mine}`;
       b.append(name, info);
       b.addEventListener('click', () => session.chooseSet(id));
       li.append(b);
       return li;
     }),
+    ...(folded ? [ownPicker(own, chosen)] : []),
   );
+}
+
+const setSize = (id: string) => {
+  const n = setOf(id).holes.length;
+  return `${n} ${n === 1 ? 'HOLE' : 'HOLES'} · PAR ${parOf(holeKeys(id))}`;
+};
+
+function ownPicker(own: string[], chosen: string) {
+  const li = document.createElement('li');
+  const pick = document.createElement('select');
+  pick.className = 'set set-pick';
+  pick.setAttribute('aria-label', 'Your sets');
+  const on = own.includes(chosen);
+  pick.classList.toggle('on', on);
+  const sorted = [...own].sort((a, b) => setOf(a).name.localeCompare(setOf(b).name));
+  pick.append(
+    new Option(`YOUR SETS (${own.length})…`, ''),
+    ...sorted.map(id => new Option(`${setOf(id).name} · ${setSize(id).toLowerCase()}`, id)),
+  );
+  pick.options[0]!.disabled = true;
+  pick.value = on ? chosen : '';
+  pick.addEventListener('change', () => pick.value && session.chooseSet(pick.value));
+  li.append(pick);
+  return li;
 }
 
 // The scores sheet, over the game; it follows the room while open.

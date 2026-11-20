@@ -60,7 +60,7 @@ const setSaver: Plugin = {
 };
 
 // Relative base so the build works under any GitHub Pages path. The editor is
-// built too, as an unlisted page at editor/; there it saves sets in the
+// built too, at editor/ (linked from the home screen); there it saves sets in the
 // browser and downloads them, but can't write to the repo.
 export default defineConfig({
   base: './',

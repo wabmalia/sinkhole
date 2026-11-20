@@ -4,8 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sinkhole set editor</title>
-  <!-- Unlisted: the editor isn't linked from the game. -->
-  <meta name="robots" content="noindex">
   <link rel="icon" href="../favicon.png" sizes="32x32">
   <link rel="icon" href="../icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="../apple-touch-icon.png">
@@ -101,7 +99,8 @@
       <button type="button" class="danger" id="delete">DELETE</button>
     </div>
     <p class="status" id="status" role="status"></p>
-    <p class="keys">SAVE keeps the set in this browser, where PLAY SOLO finds it.</p>
+    <p class="keys">SAVE keeps the set in this browser, where PLAY SOLO and HOST A ROOM find it.</p>
+    <a class="back" href="../">← BACK TO THE GAME</a>
   </aside>
 
   <dialog class="info" id="info">
@@ -114,6 +113,23 @@
       <p>☰ holds the set: its holes in order, their names and par, and saving. The pill beside it says whether the set is ready, and tapping it lists what to fix.</p>
       <p>Everything snaps to the grid; hold <kbd>Shift</kbd> to place freely. Undo is the arrow under the tools, or <kbd>⌘Z</kbd> / <kbd>Ctrl Z</kbd>. The dashed box is the size limit.</p>
       <p>On a computer, right-click or <kbd>Delete</kbd> removes what's under the pointer; <kbd>Enter</kbd> closes a shape and <kbd>Esc</kbd> cancels it.</p>
+      <button type="button" class="linkish" id="welcome-again">Show the intro again</button>
+    </div>
+  </dialog>
+
+  <dialog class="info welcome" id="welcome" aria-labelledby="welcome-title">
+    <div class="info-head">
+      <h2 id="welcome-title">MAKE A COURSE</h2>
+    </div>
+    <ol class="welcome-steps">
+      <li><b>Draw a hole.</b> It needs an outline, a tee and a cup. HELP explains every tool.</li>
+      <li><b>Try it.</b> TEST plays the hole right here.</li>
+      <li><b>Build the set.</b> ☰ adds holes (up to 18), names them and sets par.</li>
+      <li><b>Save it.</b> SAVE keeps the set in this browser. It shows up in PLAY SOLO, and when you HOST A ROOM your friends play it too, nothing to install or share.</li>
+    </ol>
+    <p class="welcome-note">Saved sets live only in this browser. DOWNLOAD a copy to keep it safe or move it to another device.</p>
+    <div class="welcome-foot">
+      <button type="button" class="primary" id="welcome-ok">START BUILDING</button>
     </div>
   </dialog>
 

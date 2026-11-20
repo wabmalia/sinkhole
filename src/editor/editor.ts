@@ -1544,6 +1544,28 @@ el.infoClose.addEventListener('click', () => el.info.close());
 // A tap outside the box closes it too.
 el.info.addEventListener('click', e => e.target === el.info && el.info.close());
 
+// The first visit: what making a set is about, in four steps. HELP covers the
+// tools; this links back from there.
+const WELCOME_KEY = 'sinkhole-editor-welcomed';
+const welcome = $<HTMLDialogElement>('welcome');
+$('welcome-ok').addEventListener('click', () => welcome.close());
+welcome.addEventListener('close', () => {
+  try {
+    localStorage.setItem(WELCOME_KEY, '1');
+  } catch {
+    // Storage off: it shows again next time.
+  }
+});
+$('welcome-again').addEventListener('click', () => {
+  el.info.close();
+  welcome.showModal();
+});
+try {
+  if (!localStorage.getItem(WELCOME_KEY)) welcome.showModal();
+} catch {
+  welcome.showModal();
+}
+
 // --- Start ---------------------------------------------------------------
 
 new ResizeObserver(draw).observe(el.stage);

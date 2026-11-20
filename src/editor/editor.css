@@ -540,3 +540,58 @@ h2.section {
   gap: 10px;
   padding: 0 16px 18px;
 }
+
+/* --- First visit ---------------------------------------------------------------- */
+
+.welcome { width: min(440px, calc(100% - 32px)); }
+
+.welcome-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 16px 4px 36px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.welcome-steps b { color: var(--fg); }
+.welcome-steps li::marker { color: var(--neon); font-family: var(--font); font-weight: 700; }
+
+.welcome-note {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-left: 2px solid var(--gold);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.welcome-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px;
+}
+
+.linkish {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--neon);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+.back {
+  margin-top: auto;
+  padding-top: 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--neon);
+  text-decoration: none;
+}

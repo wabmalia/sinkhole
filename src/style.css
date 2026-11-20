@@ -401,8 +401,9 @@ html, body {
 }
 
 .btn-big { min-width: 200px; padding: 15px 28px; font-size: 16px; }
-/* PLAY SOLO and HOST A ROOM, one size. */
+/* PLAY SOLO, HOST A ROOM and OPEN EDITOR, one size. */
 #home-actions .btn-big { width: 220px; }
+a.btn { display: inline-block; box-sizing: border-box; text-align: center; text-decoration: none; }
 
 .results {
   display: flex;
@@ -647,6 +648,16 @@ html, body {
 }
 
 .set.on .set-info { color: var(--gold); }
+
+/* Sets from this browser, once there are too many to list. */
+.set-pick {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background: rgb(18 21 42 / 0.7) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23c0c4dc' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 12px center / 12px 8px;
+  text-transform: uppercase;
+}
+.set-pick option { background: #12152a; color: #fff; text-transform: none; }
 
 /* --- Scores -------------------------------------------------------------- */
 

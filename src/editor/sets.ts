@@ -5,9 +5,10 @@ import { parseHole } from '../holes/format';
 
 // The set being made: its name, file name and holes, in order. The canvas
 // edits one hole at a time (editor.ts); this side keeps the set together and
-// saves it. SAVE keeps it in this browser, where PLAY SOLO finds it;
-// DOWNLOAD gives the file to share or commit; on the dev server TO REPO
-// writes it into src/sets/ (see vite.config.ts). The work in progress, saved
+// saves it. SAVE keeps it in this browser, where PLAY SOLO and HOST A ROOM
+// find it; DOWNLOAD gives the file to share or commit; on the dev server TO
+// REPO writes it into src/sets/ (see vite.config.ts). On the live site the
+// game's own sets open as a copy: they can't change there. The work in progress, saved
 // or not, survives a reload.
 
 const LOCAL = import.meta.env.DEV;
@@ -213,10 +214,18 @@ export function setupSets(host: SetsHost) {
     };
     el.open.replaceChildren(
       new Option('Open a set…', ''),
-      group('In the game', 'game', repoIds),
+      group(LOCAL ? 'In the game' : 'Copy from the game', 'game', repoIds),
       ...(mine.length ? [group('In this browser', 'browser', mine)] : []),
       new Option('From a file…', 'file'),
     );
+  }
+
+  // A file name no set in this browser has yet.
+  function freeId(base: string) {
+    const taken = browserSets();
+    let id = base.slice(0, 32);
+    for (let n = 2; id in taken; n++) id = `${base.slice(0, 29)}-${n}`;
+    return id;
   }
 
   // Lenient, so a set that breaks the rules can still be opened and fixed.
@@ -244,7 +253,12 @@ export function setupSets(host: SetsHost) {
       data = res.ok ? await res.json() : undefined;
     } else data = Object.entries(BUILT).find(([path]) => builtId(path) === id)?.[1];
     if (data === undefined) return status(`Couldn't open ${id}.`);
-    const where = from === 'browser' ? 'this browser' : LOCAL ? `src/sets/${id}.json` : 'the game';
+    if (from === 'game' && !LOCAL) {
+      const copy = fromData(freeId(`${id}-copy`), data, null);
+      copy.name = `${copy.name} copy`.slice(0, 24);
+      return replace(copy, `Opened a copy of ${id}. The game's sets stay as they are; SAVE keeps yours in this browser.`);
+    }
+    const where = from === 'browser' ? 'this browser' : `src/sets/${id}.json`;
     replace(fromData(id, data, { from, id }), `Opened ${id} from ${where}.`);
   });
 
@@ -310,7 +324,7 @@ export function setupSets(host: SetsHost) {
     if (!saveBrowserSet(set.id, done)) return status('Not saved: this browser has storage off or full.');
     set.origin = { from: 'browser', id: set.id };
     dirty = false;
-    status(`Saved in this browser as ${set.id}. PLAY SOLO lists it.${trimmed}`);
+    status(`Saved in this browser as ${set.id}. PLAY SOLO and HOST A ROOM list it.${trimmed}`);
     render();
     void listSets();
   });
