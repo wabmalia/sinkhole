@@ -2,7 +2,11 @@
 
 Turn-based mini golf on a neon grid, for up to 8 players. One browser hosts
 the room over PeerJS (same model as turn7) and everyone else joins with the
-5-letter code or an invite link.
+5-letter code or an invite link. The connecting (room codes, heartbeats,
+reconnects, pings, the TURN relay) is
+[courier](https://github.com/wabmalia/courier) (`@wabmalia/courier`), a
+private repo shared by the arcade games; the host room and its messages are
+in `src/net`.
 
 Phaser 4 + TypeScript + Vite. The game logic in `src/engine` is plain TS with
 Vitest tests; Phaser only draws the course and the DOM handles the UI.
@@ -50,3 +54,8 @@ aiming and its sway, stroke limit and colours.
 
 GitHub Actions builds and deploys to GitHub Pages on every push to `main`.
 Settings → Pages → Source: "GitHub Actions".
+
+courier is private, so `npm ci` reads it with this repo's read-only deploy
+key: the `COURIER_DEPLOY_KEY` Actions secret, whose public half is a deploy
+key on wabmalia/courier. To pick up a new courier version, bump its tag in
+`package.json` and `npm install`.

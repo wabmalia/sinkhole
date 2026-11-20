@@ -23,6 +23,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # courier (@wabmalia/courier) is a private repo: read it with this
+      # repo's read-only deploy key (see courier's README).
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.COURIER_DEPLOY_KEY }}
       - run: npm ci
       - run: npm run check
       - run: npm test

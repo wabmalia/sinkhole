@@ -1,4 +1,4 @@
-import { Peer, type DataConnection, type PeerOptions } from 'peerjs';
+import { host, join, store, tabId, type Guest, type Host } from '@wabmalia/courier';
 import type { Shot } from '../engine/shot';
 import type { Vec } from '../engine/vec';
 import { HostRoom, type HostSnapshot } from './host';
@@ -7,9 +7,11 @@ import { clearSharedSet, DEFAULT_SET, hasSet, useSharedSet } from '../sets';
 import { onBrowserSets } from '../sets/browser';
 import { cleanName, newRoomCode, PEER_PREFIX, type Aim, type RoomView, type ToClient, type ToHost } from './protocol';
 
-// The connection side, the same shape as turn7's: one browser hosts the room
-// over PeerJS, the others join by code. Solo play runs the same host room with
-// no connection at all. Screens listen for changes.
+// The connection side. Courier (@wabmalia/courier) does the connecting: the
+// room code, heartbeats, reconnects and the relay. This keeps what's
+// Sinkhole's: the host room, saving it across refreshes, solo play (the same
+// host room with no connection at all) and the shots and aims screens animate.
+// Screens listen for changes.
 
 export type Status = 'home' | 'connecting' | 'room' | 'error';
 
@@ -20,44 +22,7 @@ export interface SessionListener {
   toast?(text: string): void;
 }
 
-// Storage can throw (private mode, blocked site data); none of it is essential.
-const store = {
-  get(area: Storage, key: string): string | null {
-    try {
-      return area.getItem(key);
-    } catch {
-      return null;
-    }
-  },
-  set(area: Storage, key: string, value: string | null) {
-    try {
-      if (value === null) area.removeItem(key);
-      else area.setItem(key, value);
-    } catch {
-      /* ignore */
-    }
-  },
-};
-
-/** Per-tab identity, so a refresh reclaims the same seat but two tabs are two players. */
-function tabId(): string {
-  let id = store.get(sessionStorage, 'sinkhole.id');
-  if (!id) {
-    id = crypto.randomUUID();
-    store.set(sessionStorage, 'sinkhole.id', id);
-  }
-  return id;
-}
-
-/** How long a guest waits for the direct connection before giving up. */
-const JOIN_TIMEOUT_MS = 15_000;
-
-// Relay servers when the turn-relay Worker answers, else PeerJS's defaults.
-async function peerOptions(): Promise<PeerOptions> {
-  const servers = await iceServers();
-  return servers ? { config: { iceServers: servers } } : {};
-}
-
+const ID_KEY = 'sinkhole.id';
 const snapKey = (code: string) => `sinkhole.host.${code}`;
 // A solo game is saved like a hosted room, under this code.
 const SOLO = 'SOLO';
@@ -79,19 +44,18 @@ class Session {
   /** Playing alone: a host room with no connection. */
   solo = false;
   code = '';
-  me = tabId();
+  me = tabId(ID_KEY);
   room: RoomView | null = null;
   /** False while a client is reconnecting to the host. */
   linked = true;
+  /** Each guest's round trip to the host, in ms, by id. */
+  pings: Record<string, number> = {};
   name = store.get(localStorage, 'sinkhole.name') ?? '';
 
   private listeners = new Set<SessionListener>();
-  private peer: Peer | null = null;
   private host: HostRoom | null = null;
-  private conn: DataConnection | null = null;
-  private retry: ReturnType<typeof setTimeout> | undefined;
-  /** Bumped on teardown, so a peer still being set up knows it's stale. */
-  private gen = 0;
+  private hosting: Host | null = null;
+  private guest: Guest<ToHost> | null = null;
 
   listen(l: SessionListener) {
     this.listeners.add(l);
@@ -121,7 +85,27 @@ class Session {
   hostRoom(resumeCode?: string) {
     const saved = this.openRoom(resumeCode ?? null, newRoomCode(), 'Host');
     this.set({ status: 'connecting', message: saved ? 'Reopening your room…' : 'Creating room…', room: this.host!.view() });
-    this.openHostPeer(this.code, !saved, 0);
+    const room = this.host!;
+    const code = this.code;
+    this.hosting = host<ToClient>({
+      prefix: PEER_PREFIX,
+      code,
+      fresh: !saved,
+      iceServers: () => iceServers(),
+      attach: link => room.attach(link),
+      open: () => {
+        this.set({ status: 'room' });
+        location.hash = `#/host/${code}`;
+      },
+      // Code collision on a brand new room: just pick another.
+      codeTaken: () => this.hostRoom(),
+      notice: text => {
+        if (this.status === 'room') this.emit('toast', text);
+        else this.set({ message: text });
+      },
+      fail: message => this.fail(message),
+      pings: pings => (this.pings = pings),
+    });
   }
 
   /** Play alone, straight to picking a set; or carry on after a refresh. */
@@ -157,51 +141,6 @@ class Session {
     return !!saved;
   }
 
-  private async openHostPeer(code: string, fresh: boolean, attempt: number) {
-    const gen = this.gen;
-    const options = await peerOptions();
-    if (gen !== this.gen) return; // left or restarted while waiting
-    const peer = new Peer(PEER_PREFIX + code, options);
-    this.peer = peer;
-    peer.on('open', () => {
-      this.set({ status: 'room' });
-      location.hash = `#/host/${code}`;
-    });
-    peer.on('connection', conn => {
-      conn.on('open', () => {
-        const h = this.host!.attach({
-          send: m => conn.open && conn.send(m),
-          close: () => conn.close(),
-        });
-        conn.on('data', h.message);
-        conn.on('close', h.closed);
-        conn.on('error', h.closed);
-      });
-    });
-    peer.on('disconnected', () => {
-      if (!peer.destroyed) peer.reconnect();
-    });
-    peer.on('error', err => {
-      if (this.peer !== peer) return;
-      if (err.type === 'unavailable-id') {
-        peer.destroy();
-        // Code collision on a brand new room: just pick another.
-        if (fresh) return this.hostRoom();
-        // The broker still remembers our old connection; it frees up shortly.
-        if (attempt < 20) {
-          this.set({ message: 'Reclaiming your room code…' });
-          this.retry = setTimeout(() => this.openHostPeer(code, false, attempt + 1), 3000);
-          return;
-        }
-      }
-      if (this.status === 'room' && (err.type === 'network' || err.type === 'server-error')) {
-        this.emit('toast', 'Lost the matchmaking server, retrying…');
-        return;
-      }
-      if (this.status !== 'room') this.fail(`Could not open the room (${err.type}).`);
-    });
-  }
-
   chooseSet(id: string) {
     this.host?.chooseSet(id);
   }
@@ -229,64 +168,18 @@ class Session {
     this.code = code;
     this.set({ status: 'connecting', message: `Looking for room ${code}…` });
     store.set(sessionStorage, 'sinkhole.joined', code);
-    void this.openGuestPeer(code);
-  }
-
-  private async openGuestPeer(code: string) {
-    const gen = this.gen;
-    const options = await peerOptions();
-    if (gen !== this.gen) return;
-    const peer = new Peer(options);
-    this.peer = peer;
-    peer.on('open', () => this.connectToHost());
-    peer.on('disconnected', () => {
-      if (!peer.destroyed) peer.reconnect();
+    const me = this.me;
+    this.guest = join<ToClient, ToHost>({
+      prefix: PEER_PREFIX,
+      code,
+      id: me,
+      hello: () => ({ t: 'hello', id: me, name: this.name || 'Player' }),
+      message: msg => this.receive(msg),
+      status: s => this.set({ linked: s === 'linked' }),
+      fail: message => this.fail(message),
+      pings: pings => (this.pings = pings),
+      iceServers: () => iceServers(),
     });
-    peer.on('error', err => {
-      if (this.peer !== peer) return;
-      if (err.type === 'peer-unavailable') {
-        if (this.room) return this.scheduleReconnect();
-        return this.fail(`Couldn't find room ${code}. Check the code, and that the host still has the page open.`);
-      }
-      if (this.room) return this.scheduleReconnect();
-      this.fail(`Connection failed (${err.type}).`);
-    });
-  }
-
-  private connectToHost() {
-    if (!this.peer || this.peer.destroyed) return;
-    const conn = this.peer.connect(PEER_PREFIX + this.code, { reliable: true, serialization: 'json' });
-    this.conn = conn;
-    // The room was found but the browsers can't reach each other directly.
-    const stuck = () => {
-      if (this.conn !== conn || conn.open || this.room) return;
-      this.fail(
-        `Found room ${this.code} but couldn't connect to it. A browser privacy setting may be blocking WebRTC ` +
-          `(Brave Shields, or WebRTC options in Firefox-based browsers). Try another browser or turn those off for this site.`,
-      );
-    };
-    const timer = setTimeout(stuck, JOIN_TIMEOUT_MS);
-    conn.peerConnection?.addEventListener('iceconnectionstatechange', () => {
-      const state = conn.peerConnection?.iceConnectionState;
-      console.info('[sinkhole] connection', state);
-      if (state === 'failed') stuck();
-    });
-    conn.on('open', () => {
-      clearTimeout(timer);
-      this.set({ linked: true });
-      this.send({ t: 'hello', id: this.me, name: this.name || 'Player' });
-    });
-    conn.on('data', d => this.receive(d as ToClient));
-    conn.on('close', () => {
-      if (this.conn !== conn) return;
-      this.scheduleReconnect();
-    });
-  }
-
-  private scheduleReconnect() {
-    this.set({ linked: false });
-    clearTimeout(this.retry);
-    this.retry = setTimeout(() => this.connectToHost(), 2500);
   }
 
   private receive(msg: ToClient) {
@@ -314,10 +207,6 @@ class Session {
     }
   }
 
-  private send(msg: ToHost) {
-    if (this.conn?.open) this.conn.send(msg);
-  }
-
   // Shared ----------------------------------------------------------------
 
   shoot(shot: Shot, at?: Vec) {
@@ -325,13 +214,13 @@ class Session {
       const err = this.host.hostShot(shot, at);
       if (err) this.emit('toast', err);
     } else {
-      this.send({ t: 'shot', shot, at });
+      this.guest?.send({ t: 'shot', shot, at });
     }
   }
 
   aim(aim: Aim) {
     if (this.host) this.host.hostAim(aim);
-    else this.send({ t: 'aim', aim });
+    else this.guest?.send({ t: 'aim', aim });
   }
 
   /** Leave the room. A host leaving closes it for everyone. */
@@ -344,18 +233,18 @@ class Session {
   }
 
   private teardown() {
-    this.gen++;
-    clearTimeout(this.retry);
+    this.hosting?.close();
+    this.hosting = null;
+    this.guest?.close();
+    this.guest = null;
     this.host?.dispose();
     this.host = null;
-    this.conn = null;
-    this.peer?.destroy();
-    this.peer = null;
     this.room = null;
     this.role = null;
     this.solo = false;
     this.linked = true;
-    this.me = tabId();
+    this.pings = {};
+    this.me = tabId(ID_KEY);
     clearSharedSet();
   }
 

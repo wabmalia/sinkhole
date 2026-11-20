@@ -72,5 +72,8 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
+    // Run courier through Vitest rather than Node, which can't load PeerJS
+    // as an ES module (and so mocks of it apply).
+    server: { deps: { inline: ['@wabmalia/courier'] } },
   },
 });

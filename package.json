@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@wabmalia/courier": "github:wabmalia/courier#v0.1.0",
     "peerjs": "1.5.4",
     "phaser": "4.2.1"
   },

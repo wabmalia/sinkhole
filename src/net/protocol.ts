@@ -5,7 +5,7 @@ import type { Vec } from '../engine/vec';
 
 // Bumped whenever the messages change, so pages on different versions never meet.
 export const PEER_PREFIX = 'sinkhole-v4-';
-export const NAME_MAX = 16;
+export { NAME_MAX } from '@wabmalia/courier';
 
 export interface MemberView {
   id: string;
@@ -46,25 +46,8 @@ export type ToClient =
   | { t: 'error'; msg: string }
   | { t: 'rejected'; reason: string };
 
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-
-export function newRoomCode(): string {
-  const buf = new Uint32Array(5);
-  crypto.getRandomValues(buf);
-  return Array.from(buf, x => CODE_ALPHABET[x % CODE_ALPHABET.length]).join('');
-}
-
-export function normalizeCode(code: string): string {
-  return code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
-}
-
-export function cleanName(raw: unknown): string {
-  const name = String(raw ?? '')
-    .replace(/[\p{C}]/gu, '')
-    .trim()
-    .slice(0, NAME_MAX);
-  return name || 'Player';
-}
+// Codes and names are courier's, shared with the other arcade games.
+export { cleanName, newRoomCode, normalizeCode } from '@wabmalia/courier';
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isVec = (v: unknown): v is Vec => !!v && typeof v === 'object' && num((v as Vec).x) && num((v as Vec).y);
