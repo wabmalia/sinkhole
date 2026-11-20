@@ -15,6 +15,7 @@ export const CONFIG = {
     wallBounce: 0.78,     // share of speed kept off a wall, along the normal
     wallScrub: 0.96,      // share of speed kept along the wall on impact
     ballBounce: 0.9,      // ball-on-ball restitution
+    ballFollow: 0.25,     // a rolling ball rolls on after hitting another: this share of its speed into the hit, kept going forward (a head-on hit no longer stops it dead)
     wallGrip: 0.3,        // a ball pressed into a wall rubs along it: this share of the push into the wall slows it along the wall
     restPress: 2,         // a ball meeting a wall or ball no faster than stopSpeed plus this many steps of its ramp or well push rests against it, no bounce
   },

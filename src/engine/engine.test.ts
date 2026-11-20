@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
 import { courseOf, holeOf } from '../sets';
 import { canPlace, createGame, current, EngineError, forfeit, play, teeSpot } from './game';
-import { settle, shotVelocity, type Ball, type Course } from './physics';
+import { settle, shotVelocity, step, type Ball, type Course } from './physics';
 import { swayAt, type Shot } from './shot';
 
 const UP = -Math.PI / 2;
@@ -67,6 +67,30 @@ describe('physics', () => {
     const events = settle(course, [a, b]);
     expect(events.some(e => e.type === 'ball')).toBe(true);
     expect(b.pos.y).toBeLessThan(500);
+  });
+
+  it('a head-on hit leaves the shooter rolling on, slower than the ball it hit', () => {
+    const a = ball(180, 600, 0, -800, 0);
+    const b = ball(180, 500, 0, 0, 1);
+    let hit = false;
+    for (let n = 0; n < 240 && !hit; n++) hit = step(course, [a, b]).some(e => e.type === 'ball');
+    expect(hit).toBe(true);
+    // Not stopped dead: still going forward, at roughly a quarter of the speed it hit with.
+    expect(a.vel.y).toBeLessThan(-100);
+    expect(b.vel.y).toBeLessThan(a.vel.y);
+    // And it doesn't make energy out of nothing.
+    const before = 800 ** 2;
+    expect(a.vel.y ** 2 + b.vel.y ** 2).toBeLessThan(before);
+  });
+
+  it('balls meeting head-on both bounce back', () => {
+    const a = ball(180, 560, 0, -600, 0);
+    const b = ball(180, 500, 0, 600, 1);
+    let hit = false;
+    for (let n = 0; n < 240 && !hit; n++) hit = step(course, [a, b]).some(e => e.type === 'ball');
+    expect(hit).toBe(true);
+    expect(a.vel.y).toBeGreaterThan(0);
+    expect(b.vel.y).toBeLessThan(0);
   });
 
   it('balls pass through each other on the tee mat', () => {

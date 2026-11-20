@@ -297,6 +297,10 @@ function bounceOffWall(b: Ball, w: Segment, rest: number, touch: (n: Vec) => voi
 // Equal masses. Returns the closing speed if they hit, 0 if they only
 // touched, and -1 if they're apart. Closing no faster than `rest`, they are
 // pressed together and don't bounce apart.
+//
+// Pucks of equal mass would swap speeds: a head-on hit stops the moving ball
+// dead. A rolling ball's spin carries it on instead, so on a real hit each
+// ball keeps a share of what it was carrying into the other (ballFollow).
 function collideBalls(a: Ball, b: Ball, rest: number, touch: (n: Vec) => void): number {
   const d = sub(b.pos, a.pos);
   const l = len(d);
@@ -310,8 +314,11 @@ function collideBalls(a: Ball, b: Ball, rest: number, touch: (n: Vec) => void): 
   if (closing <= 0) return 0;
   const pressed = closing <= rest;
   const j = (closing * (1 + (pressed ? 0 : P.ballBounce))) / 2;
-  a.vel = sub(a.vel, scale(n, j));
-  b.vel = { x: b.vel.x + n.x * j, y: b.vel.y + n.y * j };
+  const follow = pressed ? 0 : P.ballFollow;
+  const aInto = follow * Math.max(0, dot(a.vel, n));
+  const bInto = follow * Math.max(0, -dot(b.vel, n));
+  a.vel = sub(a.vel, scale(n, j - aInto));
+  b.vel = { x: b.vel.x + n.x * (j - bInto), y: b.vel.y + n.y * (j - bInto) };
   return pressed ? 0 : closing;
 }
 
