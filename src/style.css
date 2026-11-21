@@ -416,6 +416,24 @@ html, body {
 #home-actions .btn-big { width: 220px; }
 a.btn { display: inline-block; box-sizing: border-box; text-align: center; text-decoration: none; }
 
+/* Back out to the arcade (arcade.wabmalia.eu), top left of the home screen.
+   The home screen keeps room above the title for it on narrow phones. */
+#home { padding-top: max(64px, calc(env(safe-area-inset-top) + 52px)); }
+a.btn.arcade-back {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: var(--gutter);
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  font-size: 11px;
+}
+.arcade-icon { width: 20px; height: 20px; flex: none; }
+/* Letter-spacing trails the last letter: drop it so the word sits centred. */
+.arcade-back span { margin-right: -0.14em; }
+
 .results {
   display: flex;
   flex-direction: column;
