@@ -80,37 +80,29 @@
 
   <section class="overlay" id="home">
     <a class="btn arcade-back" href="/"><svg class="arcade-icon" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#12152a"/><rect x="16" y="8" width="32" height="9" rx="2" fill="#f2b134"/><rect x="16" y="17" width="32" height="39" fill="#272c52"/><rect x="21" y="21" width="22" height="17" rx="2" fill="#0a0c1d" stroke="#5b93f0" stroke-width="1.5"/><rect x="26" y="27" width="6" height="6" rx="1" fill="#f2b134"/><path d="M14 42h36l2 7H12z" fill="#353b66"/><circle cx="24" cy="45" r="2.5" fill="#e2553f"/><circle cx="38" cy="45.5" r="1.8" fill="#f2b134"/><circle cx="43" cy="45.5" r="1.8" fill="#5b93f0"/></svg><span>ARCADE</span></a>
+    <!-- Top right, across from ARCADE: the editor is its own thing. -->
+    <a class="btn corner-link" id="make" href="editor/"><svg class="corner-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/></svg><span>EDITOR</span></a>
     <h1 class="title">SINKHOLE</h1>
     <p class="sub">mini golf on the grid</p>
 
-    <div class="panel box">
-      <label class="label" for="name">NICKNAME</label>
-      <input class="field" id="name" maxlength="16" placeholder="Pick a nickname" autocomplete="off" spellcheck="false">
-      <p class="note">Just a nickname, no real names or contact details needed.</p>
-    </div>
-
+    <!-- Each card's title sits in its top border (a legend). -->
     <div class="home-actions" id="home-actions">
-      <div class="panel box" id="solo-box">
-        <p class="label">SOLO</p>
-        <p class="note">Just you and the course.</p>
+      <fieldset class="panel box" id="solo-box">
+        <legend class="label">SOLO</legend>
         <button class="btn btn-big" id="solo" type="button">PLAY SOLO</button>
-      </div>
-      <div class="panel box">
-        <p class="label" id="multi-title">MULTIPLAYER</p>
+      </fieldset>
+      <fieldset class="panel box">
+        <legend class="label" id="multi-title">MULTIPLAYER</legend>
+        <input class="field" id="name" maxlength="16" placeholder="Your nickname" aria-label="Nickname" autocomplete="off" spellcheck="false">
+        <button class="btn btn-big" id="create" type="button">HOST A ROOM</button>
+        <p class="divider" id="host-or">OR</p>
         <form class="join" id="join-form">
           <input class="field code" id="code" maxlength="5" placeholder="CODE" aria-label="Room code"
             autocapitalize="characters" autocomplete="off" spellcheck="false">
           <button class="btn" id="join" type="submit">JOIN</button>
         </form>
-        <p class="divider" id="host-or">OR</p>
-        <button class="btn btn-big" id="create" type="button">HOST A ROOM</button>
-        <p class="note" id="host-note">Your browser hosts, the others join with its code. Up to 8 players.</p>
-      </div>
-      <div class="panel box" id="make-box">
-        <p class="label">MAKE YOUR OWN</p>
-        <p class="note">Build a course, then play it solo or host it for friends.</p>
-        <a class="btn btn-big" id="make" href="editor/">OPEN EDITOR</a>
-      </div>
+        <p class="note" id="host-note">Up to 8 players. A nickname, not your real name.</p>
+      </fieldset>
     </div>
 
     <div class="panel status" id="connecting" hidden>

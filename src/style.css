@@ -412,7 +412,7 @@ html, body {
 }
 
 .btn-big { min-width: 200px; padding: 15px 28px; font-size: 16px; }
-/* PLAY SOLO, HOST A ROOM and OPEN EDITOR, one size. */
+/* PLAY SOLO and HOST A ROOM, one size. */
 #home-actions .btn-big { width: 220px; }
 a.btn { display: inline-block; box-sizing: border-box; text-align: center; text-decoration: none; }
 
@@ -431,6 +431,30 @@ a.btn.arcade-back {
   font-size: 11px;
 }
 .arcade-icon { width: 20px; height: 20px; flex: none; }
+
+/* The editor, top right, across from ARCADE. */
+a.btn.corner-link {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: var(--gutter);
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 9px;
+  font-size: 11px;
+}
+.corner-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.corner-link span { margin-right: -0.14em; }
 /* Letter-spacing trails the last letter: drop it so the word sits centred. */
 .arcade-back span { margin-right: -0.14em; }
 
@@ -508,7 +532,7 @@ a.btn.arcade-back {
 .join .code { flex: 1; min-width: 0; letter-spacing: 0.3em; text-transform: uppercase; }
 .join .btn { min-width: 0; }
 
-/* The home screen's sections: nickname, solo, multiplayer. */
+/* The home screen's sections: solo, multiplayer. */
 .home-actions {
   display: flex;
   flex-direction: column;
@@ -518,13 +542,21 @@ a.btn.arcade-back {
 }
 
 .panel.box {
-  padding: 14px 16px 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 16px 16px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: rgb(18 21 42 / 0.6);
 }
 
-.panel.box > .label { font-weight: 900; color: var(--fg); }
+/* The card's title, in a gap in its top border. */
+.panel.box > .label {
+  margin: 0 auto;
+  padding: 0 10px;
+  font-weight: 900;
+  color: var(--fg);
+}
 
 /* A rule either side: "—— OR ——". */
 .divider {

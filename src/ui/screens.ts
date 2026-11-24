@@ -22,7 +22,7 @@ const el = {
   code: $<HTMLInputElement>('code'),
   join: $<HTMLButtonElement>('join'),
   soloBox: $('solo-box'),
-  makeBox: $('make-box'),
+  makeBox: $('make'),
   multiTitle: $('multi-title'),
   hostNote: $('host-note'),
   hostOr: $('host-or'),
