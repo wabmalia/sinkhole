@@ -29,10 +29,12 @@ html, body {
   font-family: var(--font);
 }
 
-/* The canvas fills the page; everything else floats over it. */
+/* The canvas fills the page, short of the notch, Dynamic Island and home
+   indicator (an installed app or a phone on its side); everything else
+   floats over it. */
 .stage {
   position: fixed;
-  inset: 0;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   overflow: hidden;
 }
 
@@ -387,7 +389,7 @@ kbd {
   flex-direction: column;
   gap: 12px;
   width: min(340px, 92vw);
-  padding: 16px;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
   border-right: 1px solid var(--line);
   background: var(--bg);
   overflow-y: auto;
